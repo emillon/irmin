@@ -26,3 +26,8 @@ let t a =
   |~ case1 "removed" a (fun x -> `Removed x)
   |~ case1 "added" a (fun x -> `Added x)
   |> sealv
+
+let map f = function
+  | `Updated (x, y) -> `Updated (f x, f y)
+  | `Removed x      -> `Removed (f x)
+  | `Added x        -> `Added (f x)

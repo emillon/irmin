@@ -17,3 +17,5 @@
 type 'a t = [`Updated of 'a * 'a | `Removed of 'a | `Added of 'a]
 
 val t: 'a Type.t -> 'a t Type.t
+
+val map: ('a -> 'b) -> 'a t -> 'b t

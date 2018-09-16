@@ -25,5 +25,29 @@ module type CLIENT = sig
   val ctx: unit -> ctx option
 end
 
-module Make (C: CLIENT): Irmin.S_MAKER
-module KV (C: CLIENT): Irmin.KV_MAKER
+module type S = sig
+  include Irmin.S
+  val connect: Uri.t -> Repo.t
+end
+
+module Make (C: CLIENT)
+    (M: Irmin.Metadata.S)
+    (C: Irmin.Contents.S)
+    (P:Irmin.Path.S)
+    (B: Irmin.Branch.S)
+    (H: Irmin.Hash.S):
+  S with type key = P.t
+     and type step = P.step
+     and type metadata = M.t
+     and type contents = C.t
+     and type branch = B.t
+     and type Commit.Hash.t = H.t
+     and type Tree.Hash.t = H.t
+     and type Contents.Hash.t = H.t
+
+module type KV = sig
+  include Irmin.KV
+  val connect: Uri.t -> Repo.t
+end
+
+module KV (C: CLIENT) (C: Irmin.Contents.S): KV with type contents = C.t

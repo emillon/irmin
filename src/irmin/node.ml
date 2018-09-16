@@ -136,6 +136,11 @@ struct
   type key = S.key
   type value = S.value
 
+  let v config =
+    C.v config >>= fun c ->
+    S.v config >|= fun s ->
+    c, s
+
   let mem (_, t) = S.mem t
   let find (_, t) = S.find t
   let add (_, t) = S.add t

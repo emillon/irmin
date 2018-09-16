@@ -70,24 +70,19 @@ module type RO = sig
   type t
   type key
   type value
+  val v: Conf.t -> t Lwt.t
   val mem: t -> key -> bool Lwt.t
   val find: t -> key -> value option Lwt.t
 end
-
-module type RO_MAKER =
-  functor (K: S0) ->
-  functor (V: S0) ->
-    RO with type key = K.t and type value = V.t
 
 module type AO = sig
   include RO
   val add: t -> value -> key Lwt.t
 end
 
-module type AO_MAKER = functor (K: HASH) -> functor (V: CONV) ->
-sig
-  include AO with type key = K.t and type value = V.t
-  val v: Conf.t -> t Lwt.t
+module type AO_MAKER = sig
+  include RO with type key = string and type value = string
+  val add: t -> string -> string -> unit Lwt.t
 end
 
 module type METADATA = sig
@@ -211,11 +206,7 @@ module type LINK = sig
   val add: t -> key -> value -> unit Lwt.t
 end
 
-module type LINK_MAKER =
-  functor (K: HASH) -> sig
-    include LINK with type key = K.t and type value = K.t
-    val v: Conf.t -> t Lwt.t
-  end
+module type LINK_MAKER = LINK with type key = string and type value = string
 
 module type SLICE = sig
   type t
@@ -256,10 +247,14 @@ module type RW = sig
   val unwatch: t -> watch -> unit Lwt.t
 end
 
-module type RW_MAKER = functor (K: CONV) -> functor (V: CONV) ->
-sig
-  include RW with type key = K.t and type value = V.t
-  val v: Conf.t -> t Lwt.t
+(** Read-write stores. *)
+module type RW_MAKER = sig
+  include RO with type key = string and type value = string
+  val set: t -> key -> value -> unit Lwt.t
+  val test_and_set:
+    t -> key -> test:value option -> set:value option -> bool Lwt.t
+  val remove: t -> key -> unit Lwt.t
+  val list: t -> key list Lwt.t
 end
 
 module type BRANCH_STORE = sig

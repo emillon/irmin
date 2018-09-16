@@ -91,18 +91,23 @@ module Chunk (K: Irmin.Hash.S) = struct
   let of_string s = Irmin.Type.decode_string t s
   let pp ppf v = Fmt.string ppf (Irmin.Type.encode_string t v)
 
+  let encode = Irmin.Type.encode_string t
+
+  let decode x = match Irmin.Type.decode_string t x with
+    | Ok x    -> Some x
+    | Error _ -> None
+
 end
 
 module AO (S:AO_MAKER) (K:Irmin.Hash.S) (V: Irmin.Contents.Conv) = struct
 
   module Chunk = Chunk(K)
 
-  module AO = S(K)(Chunk)
-  type key = AO.key
+  type key = K.t
   type value = V.t
 
   type t = {
-    db          : AO.t;             (* An handler to the underlying database. *)
+    db          : S.t;              (* An handler to the underlying database. *)
     chunk_size  : int;                                 (* the size of chunks. *)
     max_children: int;     (* the maximum number of children a node can have. *)
     max_data    : int; (* the maximum length (in bytes) of data stored in one
@@ -120,9 +125,12 @@ module AO (S:AO_MAKER) (K:Irmin.Hash.S) (V: Irmin.Contents.Conv) = struct
         | Chunk.Data  d -> Lwt.return (d :: acc)
         | Chunk.Index i ->
           Lwt_list.fold_left_s (fun acc key ->
-              AO.find t.db key >>= function
+              S.find t.db (K.to_raw_string key) >>= function
               | None   -> Lwt.return acc
-              | Some v -> aux acc v
+              | Some v ->
+                match Chunk.decode v with
+                | Some v -> aux acc v
+                | None   -> Lwt.return acc
             ) acc i
       in
       aux [] root >|= List.rev
@@ -151,7 +159,10 @@ module AO (S:AO_MAKER) (K:Irmin.Hash.S) (V: Irmin.Contents.Conv) = struct
           in
           let l = list_partition n l in
           Lwt_list.map_p (fun i ->
-              AO.add t.db (index t i)
+              let value = Chunk.encode (index t i) in
+              let key = K.digest_string value in
+              S.add t.db (K.to_raw_string key) value >|= fun () ->
+              key
             ) l >>=
           aux
       in
@@ -172,12 +183,15 @@ module AO (S:AO_MAKER) (K:Irmin.Hash.S) (V: Irmin.Contents.Conv) = struct
       (fun l ->
          l "config: chunk-size=%d digest-size=%d max-data=%d max-children=%d"
            chunk_size K.digest_size max_data max_children);
-    AO.v config >|= fun db -> { db; chunk_size; max_children; max_data }
+    S.v config >|= fun db -> { db; chunk_size; max_children; max_data }
 
   let find_leaves t key =
-    AO.find t.db key >>= function
+    S.find t.db (K.to_raw_string key) >>= function
     | None    -> Lwt.return []
-    | Some x  -> Tree.find_leaves t x
+    | Some x  ->
+      match Chunk.decode x with
+      | Some x -> Tree.find_leaves t x
+      | None   -> Lwt.return []
 
   let find t key =
     find_leaves t key >|= fun bufs ->
@@ -197,22 +211,27 @@ module AO (S:AO_MAKER) (K:Irmin.Hash.S) (V: Irmin.Contents.Conv) = struct
     let buf = Irmin.Type.encode_bytes V.t v in
     let len = Bytes.length buf in
     if len <= t.max_data then (
-      AO.add t.db (data t buf) >|= fun k ->
-      Log.debug (fun l -> l "add -> %a (no split)" K.pp k);
-      k
+      let value = Chunk.encode (data t buf) in
+      let key = K.digest_string value in
+      S.add t.db (K.to_raw_string key) value >|= fun () ->
+      Log.debug (fun l -> l "add -> %a (no split)" K.pp key);
+      key
     ) else (
       let offs = list_range ~init:0 ~stop:len ~step:t.max_data in
       let aux off =
         let len = min t.max_data (Bytes.length buf - off) in
         let payload = Bytes.sub buf off len in
-        AO.add t.db (data t payload)
+        let value = Chunk.encode (data t payload) in
+        let key = K.digest_string value in
+        S.add t.db (K.to_raw_string key) value >|= fun () ->
+        key
       in
       Lwt_list.map_s aux offs >>= Tree.add t >|= fun k ->
       Log.debug (fun l -> l "add -> %a (split)" K.pp k);
       k
     )
 
-  let mem t key = AO.mem t.db key
+  let mem t key = S.mem t.db (K.to_raw_string key)
 
 end
 

@@ -18,6 +18,16 @@ open Irmin_http_common
 open Astring
 open Lwt.Infix
 
+module type S = sig
+  include Irmin.S
+  val connect: Uri.t -> Repo.t
+end
+
+module type KV = sig
+  include Irmin.KV
+  val connect: Uri.t -> Repo.t
+end
+
 let src = Logs.Src.create "irmin.http" ~doc:"Irmin HTTP REST interface"
 module Log = (val Logs.src_log src : Logs.LOG)
 
@@ -440,10 +450,19 @@ struct
         let node = contents, node in
         let commit = node, commit in
         { contents; node; commit; branch; config }
-
     end
   end
   include Irmin.Make_ext(X)
+
+  let connect ?ctx uri =
+    Private.Contents.v ?ctx uri >>= fun contents ->
+    Node.v ?ctx uri      >>= fun node ->
+    Commit.v ?ctx uri    >>= fun commit ->
+    Branch.v ?ctx uri    >|= fun branch ->
+    let node = contents, node in
+    let commit = node, commit in
+    { contents; node; commit; branch; config }
+
 end
 
 module KV (H: CLIENT) (C: Irmin.Contents.S) =

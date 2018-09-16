@@ -16,6 +16,9 @@
 
 open Lwt.Infix
 
+let src = Logs.Src.create "irmin" ~doc:"Irmin branch-consistent store"
+module Log = (val Logs.src_log src : Logs.LOG)
+
 module Type = Type
 module Diff = Diff
 
@@ -50,6 +53,91 @@ struct
   let of_string j = Type.decode_json C.t (Jsonm.decoder (`String j))
 end
 
+module Make_AO (AO: S.AO_MAKER) (K: S.HASH) (V: S.CONV) = struct
+  type t = AO.t
+  type key = K.t
+  type value = V.t
+
+  let v = AO.v
+
+  let mem t k = AO.mem t (K.to_raw_string k)
+
+  let find t k =
+    AO.find t (K.to_raw_string k) >|= function
+    | None   -> None
+    | Some v -> match Type.decode_string V.t v with
+      | Ok v          -> Some v
+      | Error (`Msg e)->
+        Fmt.invalid_arg "Cannot read the contents of %a: %s" K.pp k e
+
+  let add t v =
+    let v = Type.encode_string V.t v in
+    let k = K.digest_string v in
+    AO.add t (K.to_raw_string k) v >|= fun () ->
+    k
+
+end
+
+module Make_RW (RW: S.RW_MAKER) (K: S.CONV) (V: S.HASH) = struct
+
+  module W = Watch.Make(K)(V)
+  module L = Lock.Make(K)
+
+  type t = RW.t
+
+  type watch = W.watch
+  type key = K.t
+  type value = V.t
+
+  let watches = W.v ()
+  let lock = L.v ()
+  let v = RW.v
+
+  let of_key = Fmt.to_to_string K.pp
+
+  let to_key x = match K.of_string x with
+    | Ok x -> x
+    | Error (`Msg e) -> Fmt.invalid_arg "%s is not a valid key: %s" x e
+
+  let of_value = V.to_raw_string
+
+  let o f = function None -> None | Some x -> Some (f x)
+
+  let mem t k = RW.mem t (of_key k)
+  let list t = RW.list t >|= List.map to_key
+
+  let set t k v =
+    Log.debug (fun l -> l "RW.set %a" K.pp k);
+    L.with_lock lock k (fun () -> RW.set t (of_key k) (of_value v)) >>= fun () ->
+    W.notify watches k (Some v)
+
+  let remove t k =
+    Log.debug (fun l -> l "RW.remove %a" K.pp k);
+    L.with_lock lock k (fun () -> RW.remove t (of_key k)) >>= fun () ->
+    W.notify watches k None
+
+  let find t k =
+    Log.debug (fun l -> l "RW.find %a" K.pp k);
+    RW.find t (of_key k) >|= function
+    | None   -> None
+    | Some v -> match Type.decode_string V.t v with
+      | Ok v          -> Some v
+      | Error (`Msg e)->
+        Fmt.invalid_arg "Cannot read the contents of %a: %s" K.pp k e
+
+  let test_and_set t k ~test ~set =
+    Log.debug (fun l -> l "RW.test_and_set %a" K.pp k);
+    L.with_lock lock k (fun () ->
+        RW.test_and_set t (of_key k) ~test:(o of_value test) ~set:(o of_value set)
+      ) >>= fun updated ->
+    (if updated then W.notify watches k set else Lwt.return_unit) >|= fun () ->
+     updated
+
+  let watch _ = W.watch watches
+  let watch_key _ = W.watch_key watches
+  let unwatch _ = W.unwatch watches
+end
+
 module Make
     (AO: S.AO_MAKER)
     (RW: S.RW_MAKER)
@@ -62,7 +150,7 @@ struct
 
   module X = struct
     module XContents = struct
-      include AO(H)(C)
+      include Make_AO (AO)(H)(C)
       module Key = H
       module Val = C
     end
@@ -71,24 +159,22 @@ struct
       module AO = struct
         module Key = H
         module Val = Node.Make (H)(H)(P)(M)
-        include AO (Key)(S02Conv(Val))
+        include Make_AO (AO)(Key)(S02Conv(Val))
       end
       include Node.Store(Contents)(P)(M)(AO)
-      let v = AO.v
     end
     module Commit = struct
       module AO = struct
         module Key = H
         module Val = Commit.Make (H)(H)
-        include AO (Key)(S02Conv(Val))
+        include Make_AO (AO)(Key)(S02Conv(Val))
       end
       include Commit.Store(Node)(AO)
-      let v = AO.v
     end
     module Branch = struct
       module Key = B
       module Val = H
-      include RW (Key)(Val)
+      include Make_RW (RW)(Key)(Val)
     end
     module Slice = Slice.Make(Contents)(Node)(Commit)
     module Sync = Sync.None(H)(B)
@@ -106,12 +192,11 @@ struct
       let contents_t t = t.contents
 
       let v config =
-        XContents.v config >>= fun contents ->
-        Node.v config      >>= fun node ->
-        Commit.v config    >>= fun commit ->
-        Branch.v config    >|= fun branch ->
-        let node = contents, node in
-        let commit = node, commit in
+        AO.v config >>= fun t ->
+        RW.v config >|= fun branch ->
+        let contents = t in
+        let node = contents, t in
+        let commit = node, t in
         { contents; node; commit; branch; config }
     end
   end

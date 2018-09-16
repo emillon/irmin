@@ -742,6 +742,10 @@ module type RO = sig
   type t
   (** The type for read-only backend stores. *)
 
+  val v: config -> t Lwt.t
+  (** [v config] is a function returning fresh store handles, with the
+      configuration [config], which is provided by the backend. *)
+
   type key
   (** The type for keys. *)
 
@@ -3182,13 +3186,14 @@ end
 (** [AO_MAKER] is the signature exposed by append-only store
     backends. [K] is the implementation of keys and [V] is the
     implementation of values. *)
-module type AO_MAKER = functor (K: Hash.S) -> functor (V: Contents.Conv) -> sig
+module type AO_MAKER = sig
 
-  include AO with type key = K.t and type value = V.t
+  include RO with type key = string and type value = string
 
-  val v: config -> t Lwt.t
-  (** [v config] is a function returning fresh store handles, with the
-      configuration [config], which is provided by the backend. *)
+  val add: t -> string -> string -> unit Lwt.t
+  (** [add t k v] adds the bindings [k -> v] to the store. [k] is
+     supposed to derived from [v] using {{!Hash.S}deterministic
+     hashes. *)
 end
 
 (** [LINK_MAKER] is the signature exposed by store which enable adding
@@ -3196,24 +3201,20 @@ end
     manipulated by the Irmin runtime and the keys used for
     storage. This is useful when trying to optimize storage for
     random-access file operations or for encryption. *)
-module type LINK_MAKER = functor (K: Hash.S) -> sig
-  include LINK with type key = K.t and type value = K.t
-  val v: config -> t Lwt.t
-end
+module type LINK_MAKER =  LINK with type key = string and type value = string
 
 (** [RW_MAKER] is the signature exposed by read-write store
     backends. [K] is the implementation of keys and [V] is the
     implementation of values.*)
-module type RW_MAKER =
-  functor (K: Contents.Conv) -> functor (V: Contents.Conv) ->
-sig
+module type RW_MAKER = sig
 
-  include RW with type key = K.t and type value = V.t
+  include RO with type key = string and type value = string
 
-  val v: config -> t Lwt.t
-  (** [v config] is a function returning fresh store handles, with the
-      configuration [config], which is provided by the backend. *)
-
+  val set: t -> key -> value -> unit Lwt.t
+  val test_and_set:
+    t -> key -> test:value option -> set:value option -> bool Lwt.t
+  val remove: t -> key -> unit Lwt.t
+  val list: t -> key list Lwt.t
 end
 
 module Make (AO: AO_MAKER) (RW: RW_MAKER): S_MAKER
