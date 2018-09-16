@@ -18,21 +18,8 @@
 
 open Result
 
-module type S0 = sig
-  type t
-  val t: t Type.t
-end
-
-module type CONV = sig
-  include S0
-  val pp: t Fmt.t
-  val of_string: string -> (t, [`Msg of string]) result
-end
-
 module type PATH = sig
-  type t
-  val pp: t Fmt.t
-  val of_string: string -> (t, [`Msg of string]) result
+  include Type.S
   type step
   val empty: t
   val v: step list -> t
@@ -44,25 +31,18 @@ module type PATH = sig
   val map: t -> (step -> 'a) -> 'a list
   val pp_step: step Fmt.t
   val step_of_string: string -> (step, [`Msg of string]) result
-  val t: t Type.t
   val step_t: step Type.t
 end
 
 module type HASH = sig
-  type t
-  val pp: t Fmt.t
-  val of_string: string -> (t, [`Msg of string]) result
-  val of_raw_string: string -> t
-  val to_raw_string: t -> string
-  val digest: 'a Type.t -> 'a -> t
-  val digest_string: string -> t
+  include Type.S
+  val digest: string -> t
   val hash: t -> int
   val digest_size: int
-  val t: t Type.t
 end
 
 module type CONTENTS = sig
-  include CONV
+  include Type.S
   val merge: t option Merge.t
 end
 
@@ -75,6 +55,8 @@ module type RO = sig
   val find: t -> key -> value option Lwt.t
 end
 
+module type RO_MAKER = RO with type key = string and type value = string
+
 module type AO = sig
   include RO
   val add: t -> value -> key Lwt.t
@@ -86,8 +68,7 @@ module type AO_MAKER = sig
 end
 
 module type METADATA = sig
-  include S0
-  val merge: t Merge.t
+  include CONTENTS
   val default: t
 end
 
@@ -99,7 +80,7 @@ module type CONTENTS_STORE = sig
 end
 
 module type NODE = sig
-  type t
+  include Type.S
   type metadata
   type contents
   type node
@@ -112,7 +93,6 @@ module type NODE = sig
   val find: t -> step -> value option
   val update: t -> step -> value -> t
   val remove: t -> step -> t
-  val t: t Type.t
   val metadata_t: metadata Type.t
   val contents_t: contents Type.t
   val node_t: node Type.t
@@ -161,14 +141,13 @@ type config = Conf.t
 type 'a diff = 'a Diff.t
 
 module type COMMIT = sig
-  type t
+  include Type.S
   type commit
   type node
   val v: info:Info.t -> node:node -> parents:commit list -> t
   val node: t -> node
   val parents: t -> commit list
   val info: t -> Info.t
-  val t: t Type.t
   val commit_t: commit Type.t
   val node_t: node Type.t
 end
@@ -209,7 +188,7 @@ end
 module type LINK_MAKER = LINK with type key = string and type value = string
 
 module type SLICE = sig
-  type t
+  include Type.S
   type contents
   type node
   type commit
@@ -217,7 +196,6 @@ module type SLICE = sig
   val empty: unit -> t Lwt.t
   val add: t -> value -> unit Lwt.t
   val iter: t -> (value -> unit Lwt.t) -> unit Lwt.t
-  val t: t Type.t
   val contents_t: contents Type.t
   val node_t: node Type.t
   val commit_t: commit Type.t
@@ -225,7 +203,7 @@ module type SLICE = sig
 end
 
 module type BRANCH = sig
-  include CONV
+  include Type.S
   val master: t
   val is_valid: t -> bool
 end
@@ -247,7 +225,6 @@ module type RW = sig
   val unwatch: t -> watch -> unit Lwt.t
 end
 
-(** Read-write stores. *)
 module type RW_MAKER = sig
   include RO with type key = string and type value = string
   val set: t -> key -> value -> unit Lwt.t

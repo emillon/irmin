@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2013-2017 Thomas Gazagnaire <thomas@gazagnaire.org>
+ * Copyright (c) 2013-2018 Thomas Gazagnaire <thomas@gazagnaire.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,17 +14,19 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-(** Provenance tracking. *)
+open Lwt.Infix
 
-include Type.S
+module Make (AO: S.AO_MAKER) (K: S.HASH) (V: Type.S) = struct
 
-val v: date:int64 -> author:string -> string -> t
-val date: t -> int64
-val author: t -> string
-val message: t -> string
-val with_message: t -> string -> t
+  include RO.Make(AO)(K)(V)
 
-val empty: t
+  let key = Type.encode_string K.t
+  let value = Type.encode_string V.t
 
-type f = unit -> t
-val none: f
+  let add t v =
+    let v = value v in
+    let k = K.digest v in
+    AO.add t (key k) v >|= fun () ->
+    k
+
+end

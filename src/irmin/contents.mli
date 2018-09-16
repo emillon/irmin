@@ -25,6 +25,7 @@ type json = [
   | `A of json list
 ]
 
+module Unit: S.CONTENTS with type t = unit
 module String: S.CONTENTS with type t = string
 module Cstruct: S.CONTENTS with type t = Cstruct.t
 module Json: S.CONTENTS with type t = (string * json) list

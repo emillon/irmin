@@ -20,7 +20,7 @@ open Merge.Infix
 let src = Logs.Src.create "irmin.commit" ~doc:"Irmin commits"
 module Log = (val Logs.src_log src : Logs.LOG)
 
-module Make (C: S.S0) (N: S.S0) = struct
+module Make (C: Type.S) (N: Type.S) = struct
 
   type node = N.t
   type commit = C.t
@@ -46,6 +46,8 @@ module Make (C: S.S0) (N: S.S0) = struct
 
   let node_t = N.t
   let commit_t = C.t
+  let pp = Type.pp_json t
+  let of_string = Type.of_json_string t
 end
 
 module Store
@@ -158,9 +160,8 @@ module History (S: S.COMMIT_STORE) = struct
     | None   -> []
     | Some c -> S.Val.parents c
 
-  module Graph = Object_graph.Make
-      (S.Node.Contents.Key)(S.Node.Metadata)(S.Node.Key)(S.Key)
-      (struct type t = unit let t = Type.unit end)
+    module Graph = Object_graph.Make
+      (S.Node.Contents.Key)(S.Node.Metadata)(S.Node.Key)(S.Key)(Contents.Unit)
 
   let edges t =
     Log.debug (fun f -> f "edges");

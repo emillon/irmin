@@ -357,6 +357,8 @@ module Type: sig
       {b NOTE:} this will automatically convert JSON fragments to valid
       JSON objects by adding an enclosing array if necessary. *)
 
+  val of_json_string: 'a t -> string -> ('a, [`Msg of string]) result
+
   val encode_json: 'a t -> Jsonm.encoder -> 'a -> unit
   (** [encode_json t e] encodes [t] into the
       {{:http://erratique.ch/software/jsonm}jsonm} encoder [e]. The
@@ -420,6 +422,27 @@ module Type: sig
   (** Same as {!decode_cstruct} but using a string. *)
 
   val size_of: 'a t -> 'a -> int
+  (** [size_of t x] is the size needed to serialized [x]. *)
+
+  module type S = sig
+
+    (** {1 Base Types}
+
+       In Irmin, all the objects satisfying [S] are described in a
+       consistent way.  *)
+
+    type t
+    (** The type for objects. *)
+
+    val t: t Type.t
+    (** [t] is the value type for {!t}. *)
+
+    val pp: t Fmt.t
+
+    val of_string: string -> (t, [`Msg of string]) result
+
+  end
+
 end
 
 (** Commit info are used to keep track of the origin of write
@@ -429,8 +452,7 @@ module Info: sig
 
   (** {1 Commit Info} *)
 
-  type t
-  (** The type for commit info. *)
+  include Type.S
 
   val v: date:int64 -> author:string -> string -> t
   (** Create a new commit info. *)
@@ -466,11 +488,6 @@ module Info: sig
 
   val none: f
   (** The empty info function. [none ()] is [empty] *)
-
-  (** {1 Value Types} *)
-
-  val t: t Type.t
-  (** [t] is the value type for {!t}. *)
 
 end
 
@@ -717,8 +734,55 @@ module Diff: sig
 
 end
 
-(** {1 Stores} *)
+(** Hashing functions.
 
+    [Hash] provides user-defined hash function to digest serialized
+    contents. Some {{!backend}backends} might be parameterized by such
+    hash functions, others might work with a fixed one (for instance,
+    the Git format use only SHA1).
+
+    An {{!Hash.SHA1}SHA1} implementation is available to pass to the
+    backends. *)
+module Hash: sig
+
+  (** {1 Contents Hashing} *)
+
+  module type S = sig
+
+    (** Signature for digest hashes, inspired by Digestif. *)
+
+    include Type.S
+    (** The type for digest hashes. *)
+
+    val digest: string -> t
+    (** Compute a deterministic store key from a string. *)
+
+    val hash: t -> int
+    (** [hash h] is a small hash of [h], to be used for instance as
+       the `hash` function of an OCaml [Hashtbl]. *)
+
+    val digest_size: int
+    (** [digest_size] is the size of hash results, in bytes. *)
+
+
+  end
+  (** Signature for hash values. *)
+
+  module Make (H: Digestif.S): S with type t = H.t
+  (** Digestif hashes *)
+
+  module SHA1: S
+  module RMD160: S
+  module SHA224: S
+  module SHA256: S
+  module SHA384: S
+  module SHA512: S
+  module BLAKE2B: S
+  module BLAKE2S: S
+
+end
+
+(** {1 Stores} *)
 
 type config
 (** The type for backend-specific configuration values.
@@ -729,58 +793,93 @@ type config
 type 'a diff = 'a Diff.t
 (** The type for representing differences betwen values. *)
 
+
 (** An Irmin store is automatically built from a number of lower-level
     stores, implementing fewer operations, such as {{!AO}append-only}
     and {{!RW}read-write} stores. These low-level stores are provided
     by various backends. *)
 
 (** Read-only backend stores. *)
-module type RO = sig
+module RO: sig
 
-  (** {1 Read-only stores} *)
+  module type S = sig
 
-  type t
-  (** The type for read-only backend stores. *)
+    (** {1 Read-only stores} *)
 
-  val v: config -> t Lwt.t
-  (** [v config] is a function returning fresh store handles, with the
-      configuration [config], which is provided by the backend. *)
+    type t
+    (** The type for read-only backend stores. *)
 
-  type key
-  (** The type for keys. *)
+    val v: config -> t Lwt.t
+    (** [v config] is a function returning fresh store handles, with the
+        configuration [config], which is provided by the backend. *)
 
-  type value
-  (** The type for raw values. *)
+    type key
+    (** The type for keys. *)
 
-  val mem: t -> key -> bool Lwt.t
-  (** [mem t k] is true iff [k] is present in [t]. *)
+    type value
+    (** The type for raw values. *)
 
-  val find: t -> key -> value option Lwt.t
-  (** [find t k] is [Some v] if [k] is associated to [v] in [t] and
-      [None] is [k] is not present in [t]. *)
+    val mem: t -> key -> bool Lwt.t
+    (** [mem t k] is true iff [k] is present in [t]. *)
+
+    val find: t -> key -> value option Lwt.t
+    (** [find t k] is [Some v] if [k] is associated to [v] in [t] and
+        [None] is [k] is not present in [t]. *)
+
+  end
+
+  module type MAKER = S with type key = string and type value = string
+  (** Signature for makers of read-only stores. *)
+
+  module Make (S: MAKER) (K: Type.S) (V: Type.S):
+    S with type t = S.t
+       and type key = K.t
+       and type value = V.t
 
 end
 
 (** Append-only backend store. *)
-module type AO = sig
+module AO: sig
 
-  (** {1 Append-only stores}
+  module type S = sig
 
-      Append-only stores are read-only store where it is also possible
-      to add values. Keys are derived from the values raw contents and
-      hence are deterministic. *)
+    (** {1 Append-only stores}
 
-  include RO
+        Append-only stores are read-only store where it is also possible
+        to add values. Keys are derived from the values raw contents and
+        hence are deterministic. *)
 
-  val add: t -> value -> key Lwt.t
-  (** Write the contents of a value to the store. It's the
-      responsibility of the append-only store to generate a
-      consistent key. *)
+    include RO.S
+
+    val add: t -> value -> key Lwt.t
+    (** Write the contents of a value to the store. It's the
+        responsibility of the append-only store to generate a
+        consistent key. *)
+
+  end
+
+  (** [MAKER] is the signature exposed by append-only store
+      backends. [K] is the implementation of keys and [V] is the
+      implementation of values. *)
+  module type MAKER = sig
+
+    include RO.MAKER
+
+    val add: t -> string -> string -> unit Lwt.t
+    (** [add t k v] adds the bindings [k -> v] to the store. [k] is
+        supposed to derived from [v] using {{!Hash.S}deterministic
+        hashes. *)
+  end
+
+  module Make (S: MAKER) (K: Hash.S) (V: Type.S): S
+    with type t = S.t
+     and type key = K.t
+     and type value = V.t
 
 end
 
 (** Immutable Link store. *)
-module type LINK = sig
+module Link: sig
 
   (** {1 Immutable Link stores}
 
@@ -792,69 +891,103 @@ module type LINK = sig
       representation (for instance a set might be represented as
       various equivalent trees). *)
 
-  include RO
+  module type S = sig
+    include RO.S
 
-  val add: t -> key -> value -> unit Lwt.t
-  (** [add t src dst] add a link between the key [src] and the value
-      [dst]. *)
+    val add: t -> key -> value -> unit Lwt.t
+    (** [add t src dst] add a link between the key [src] and the value
+        [dst]. *)
+  end
+
+  (** [MAKER] is the signature exposed by store which enable adding
+     relation between keys. This is used to decouple the way keys are
+     manipulated by the Irmin runtime and the keys used for
+     storage. This is useful when trying to optimize storage for
+     random-access file operations or for encryption. *)
+  module type MAKER = S with type key = string and type value = string
+
+  module Make (S: MAKER) (K: Type.S) (V: Type.S):
+    S with type t = S.t
+       and type key = K.t
+       and type value = V.t
 
 end
 
 (** Read-write stores. *)
-module type RW = sig
+module RW: sig
 
   (** {1 Read-write stores}
 
       Read-write stores read-only stores where it is also possible to
       update and remove elements, with atomically guarantees. *)
+  module type S = sig
 
-  include RO
+    include RO.S
 
-  val set: t -> key -> value -> unit Lwt.t
-  (** [set t k v] replaces the contents of [k] by [v] in [t]. If [k]
-      is not already defined in [t], create a fresh binding.  Raise
-      [Invalid_argument] if [k] is the {{!Path.empty}empty path}. *)
+    val set: t -> key -> value -> unit Lwt.t
+    (** [set t k v] replaces the contents of [k] by [v] in [t]. If [k]
+        is not already defined in [t], create a fresh binding.  Raise
+        [Invalid_argument] if [k] is the {{!Path.empty}empty path}. *)
 
-  val test_and_set:
-    t -> key -> test:value option -> set:value option -> bool Lwt.t
-  (** [test_and_set t key ~test ~set] sets [key] to [set] only if
-      the current value of [key] is [test] and in that case returns
-      [true]. If the current value of [key] is different, it returns
-      [false]. [None] means that the value does not have to exist or
-      is removed.
+    val test_and_set:
+      t -> key -> test:value option -> set:value option -> bool Lwt.t
+    (** [test_and_set t key ~test ~set] sets [key] to [set] only if
+        the current value of [key] is [test] and in that case returns
+        [true]. If the current value of [key] is different, it returns
+        [false]. [None] means that the value does not have to exist or
+        is removed.
 
-      {b Note:} The operation is guaranteed to be atomic. *)
+        {b Note:} The operation is guaranteed to be atomic. *)
 
-  val remove: t -> key -> unit Lwt.t
-  (** [remove t k] remove the key [k] in [t]. *)
+    val remove: t -> key -> unit Lwt.t
+    (** [remove t k] remove the key [k] in [t]. *)
 
-  val list: t -> key list Lwt.t
-  (** [list t] it the list of keys in [t]. [RW] stores are typically
-      smaller than [AO] stores, so scanning these is usually cheap. *)
+    val list: t -> key list Lwt.t
+    (** [list t] it the list of keys in [t]. [RW] stores are typically
+        smaller than [AO] stores, so scanning these is usually cheap. *)
 
-  type watch
-  (** The type of watch handlers. *)
+    type watch
+    (** The type of watch handlers. *)
 
-  val watch:
-    t -> ?init:(key * value) list -> (key -> value diff -> unit Lwt.t) ->
-    watch Lwt.t
-  (** [watch t ?init f] adds [f] to the list of [t]'s watch handlers
-      and returns the watch handler to be used with {!unwatch}. [init]
-      is the optional initial values. It is more efficient to use
-      {!watch_key} to watch only a single given key.*)
+    val watch:
+      t -> ?init:(key * value) list -> (key -> value diff -> unit Lwt.t) ->
+      watch Lwt.t
+    (** [watch t ?init f] adds [f] to the list of [t]'s watch handlers
+        and returns the watch handler to be used with {!unwatch}. [init]
+        is the optional initial values. It is more efficient to use
+        {!watch_key} to watch only a single given key.*)
 
-  val watch_key: t -> key -> ?init:value -> (value diff -> unit Lwt.t) ->
-    watch Lwt.t
-  (** [watch_key t k ?init f] adds [f] to the list of [t]'s watch
-      handlers for the key [k] and returns the watch handler to be
-      used with {!unwatch}. [init] is the optional initial value of
-      the key. *)
+    val watch_key: t -> key -> ?init:value -> (value diff -> unit Lwt.t) ->
+      watch Lwt.t
+    (** [watch_key t k ?init f] adds [f] to the list of [t]'s watch
+        handlers for the key [k] and returns the watch handler to be
+        used with {!unwatch}. [init] is the optional initial value of
+        the key. *)
 
-  val unwatch: t -> watch -> unit Lwt.t
-  (** [unwatch t w] removes [w] from [t]'s watch handlers. *)
+    val unwatch: t -> watch -> unit Lwt.t
+    (** [unwatch t w] removes [w] from [t]'s watch handlers. *)
+
+  end
+
+  (** [MAKER] is the signature exposed by read-write store
+     backends. Locking for single writer semantic is handled
+     automatically. Otherwise must be handled manually. *)
+  module type MAKER = sig
+
+    include RO.MAKER
+
+    val set: t -> key -> value -> unit Lwt.t
+
+    val test_and_set:
+      t -> key -> test:value option -> set:value option -> bool Lwt.t
+
+    val remove: t -> key -> unit Lwt.t
+
+    val list: t -> key list Lwt.t
+
+  end
 
 end
-
 (** {1 User-Defined Contents} *)
 
 (** Store paths.
@@ -872,14 +1005,7 @@ module Path: sig
 
     (** {1 Path} *)
 
-    type t
-    (** The type for path values. *)
-
-    val pp: t Fmt.t
-    (** [pp] is the pretty-printer for paths. *)
-
-    val of_string: string -> (t, [`Msg of string]) result
-    (** [of_string] parses paths. *)
+    include Type.S
 
     type step
     (** Type type for path's steps. *)
@@ -918,9 +1044,6 @@ module Path: sig
 
     (** {1 Value Types} *)
 
-    val t: t Type.t
-    (** [t] is the value type for {!t}. *)
-
     val step_t: step Type.t
     (** [step_t] is the value type for {!step}. *)
 
@@ -931,100 +1054,6 @@ module Path: sig
 
 end
 
-(** Hashing functions.
-
-    [Hash] provides user-defined hash function to digest serialized
-    contents. Some {{!backend}backends} might be parameterized by such
-    hash functions, others might work with a fixed one (for instance,
-    the Git format use only SHA1).
-
-    An {{!Hash.SHA1}SHA1} implementation is available to pass to the
-    backends. *)
-module Hash: sig
-
-  (** {1 Contents Hashing} *)
-
-  module type S = sig
-
-    (** Signature for digest hashes, inspired by Digestif. *)
-
-    type t
-    (** The type for digest hashes. *)
-
-    val pp: t Fmt.t
-    (** [pp] is the hex pretty-printer for hashes. *)
-
-    val of_string: string -> (t, [`Msg of string]) result
-    (** [of_string] parses the hex representation of hashes. *)
-
-    val of_raw_string: string -> t
-    (** [of_raw_string s] cast [s] to a hash. Raise [Invalid_argument]
-       is [s] is not a valid raw string. *)
-
-    val to_raw_string: t -> string
-    (** [to_raw_string h] cast [h] to a string. *)
-
-    val digest: 'a Type.t -> 'a -> t
-    (** Compute a deterministic store key from a typed value. *)
-
-    val digest_string: string -> t
-    (** Compute a deterministic store key from a string. *)
-
-    val hash: t -> int
-    (** [hash h] is a small hash of [h], to be used for instance as
-       the `hash` function of an OCaml [Hashtbl]. *)
-
-    val digest_size: int
-    (** [digest_size] is the size of hash results, in bytes. *)
-
-    (** {1 Value Types} *)
-
-    val t: t Type.t
-    (** [t] is the value type for {!t}. *)
-
-  end
-  (** Signature for hash values. *)
-
-  module Make (H: Digestif.S): S with type t = H.t
-  (** Digestif hashes *)
-
-  module SHA1: S
-  module RMD160: S
-  module SHA224: S
-  module SHA256: S
-  module SHA384: S
-  module SHA512: S
-  module BLAKE2B: S
-  module BLAKE2S: S
-
-end
-
-(** [Metadata] defines metadata that is attached to contents but stored in
-    nodes. The Git backend uses this to indicate the type of file (normal,
-    executable or symlink). *)
-module Metadata: sig
-
-  module type S = sig
-
-    type t
-    (** The type for metadata. *)
-
-    val t: t Type.t
-    (** [t] is the value type for {!t}. *)
-
-    val merge: t Merge.t
-    (** [merge] is the merge function for metadata. *)
-
-    val default: t
-    (** The default metadata to attach, for APIs that don't
-        care about metadata. *)
-
-  end
-
-  module None: S with type t = unit
-  (** A metadata definition for systems that don't use metadata. *)
-
-end
 
 (** [Contents] specifies how user-defined contents need to be {e
     serializable} and {e mergeable}.
@@ -1043,50 +1072,11 @@ end
     and {{!Contents.Cstruct}C-buffers like} values are provided. *)
 module Contents: sig
 
-  module type S0 = sig
-
-    (** {1 Base Contents}
-
-        In Irmin, all the base contents should be serializable in a
-        consistent way. To do this, we rely on {!Type}. *)
-
-    type t
-    (** The type for contents. *)
-
-    val t: t Type.t
-    (** [t] is the value type for {!t}. *)
-
-  end
-
-  (** [Conv] is the signature for contents which can be converted back
-      and forth from the command-line.  *)
-  module type Conv = sig
-
-    include S0
-
-    val pp: t Fmt.t
-    (** [pp] pretty-prints contents. *)
-
-    val of_string: string -> (t, [`Msg of string]) result
-    (** [of_string] parses contents. *)
-
-  end
-
   module type S = sig
 
     (** {1 Signature for store contents} *)
 
-    type t
-    (** The type for user-defined contents. *)
-
-    val t: t Type.t
-    (** [t] is the value type for {!t}. *)
-
-    val pp: t Fmt.t
-    (** [pp] pretty-prints contents. *)
-
-    val of_string: string -> (t, [`Msg of string]) result
-    (** [of_string] parses contents. *)
+    include Type.S
 
     val merge: t option Merge.t
     (** Merge function. Evaluates to [`Conflict msg] if the values
@@ -1131,7 +1121,7 @@ module Contents: sig
   (** Contents store. *)
   module type STORE = sig
 
-    include AO
+    include AO.S
 
     val merge: t -> key option Merge.t
     (** [merge t] lifts the merge functions defined on contents values
@@ -1153,13 +1143,34 @@ module Contents: sig
 
   (** [Store] creates a contents store. *)
   module Store (S: sig
-      include AO
+      include AO.S
       module Key: Hash.S with type t = key
       module Val: S with type t = value
     end):
     STORE with type t = S.t
            and type key = S.key
            and type value = S.value
+
+end
+
+
+(** [Metadata] defines metadata that is attached to contents but stored in
+    nodes. The Git backend uses this to indicate the type of file (normal,
+    executable or symlink). *)
+module Metadata: sig
+
+  module type S = sig
+
+    include Contents.S
+
+    val default: t
+    (** The default metadata to attach, for APIs that don't
+        care about metadata. *)
+
+  end
+
+  module None: S with type t = unit
+  (** A metadata definition for systems that don't use metadata. *)
 
 end
 
@@ -1176,17 +1187,7 @@ module Branch: sig
 
     (** {1 Signature for Branches} *)
 
-    type t
-    (** The type for branches. *)
-
-    val t: t Type.t
-    (** [t] is the value type for {!t}. *)
-
-    val pp: t Fmt.t
-    (** [pp] pretty-prints branches. *)
-
-    val of_string: string -> (t, [`Msg of string]) result
-    (** [of_string] parses branch names. *)
+    include Type.S
 
     val master: t
     (** The name of the master branch. *)
@@ -1211,7 +1212,7 @@ module Branch: sig
 
     (** {1 Branch Store} *)
 
-    include RW
+    include RW.S
 
     val list: t -> key list Lwt.t
     (** [list t] list all the branches present in [t]. *)
@@ -1435,7 +1436,7 @@ module Private: sig
         it uses {!none}. *)
 
     (** [Make] builds an implementation of watch helpers. *)
-    module Make(K: Contents.S0) (V: Contents.S0):
+    module Make(K: Type.S) (V: Type.S):
       S with type key = K.t and type value = V.t
 
   end
@@ -1460,7 +1461,7 @@ module Private: sig
 
     end
 
-    module Make (K: Contents.S0): S with type key = K.t
+    module Make (K: Type.S): S with type key = K.t
     (** Create a lock manager implementation. *)
 
   end
@@ -1480,8 +1481,7 @@ module Private: sig
 
       (** {1 Node values} *)
 
-      type t
-      (** The type for node values. *)
+      include Type.S
 
       type metadata
       (** The type for node metadata. *)
@@ -1528,9 +1528,6 @@ module Private: sig
 
       (** {1 Value types} *)
 
-      val t: t Type.t
-      (** [t] is the value type for {!t}. *)
-
       val metadata_t: metadata Type.t
       (** [metadata_t] is the value type for {!metadata}. *)
 
@@ -1550,7 +1547,7 @@ module Private: sig
 
     (** [Node] provides a simple node implementation, parameterized by
         the contents [C], node [N], paths [P] and metadata [M]. *)
-    module Make (C: Contents.S0) (N: Contents.S0) (P: Path.S) (M: Metadata.S):
+    module Make (C: Type.S) (N: Type.S) (P: Path.S) (M: Metadata.S):
       S with type contents = C.t
          and type node = N.t
          and type step = P.step
@@ -1559,7 +1556,7 @@ module Private: sig
     (** [STORE] specifies the signature for node stores. *)
     module type STORE = sig
 
-      include AO
+      include AO.S
 
       module Path: Path.S
       (** [Path] provides base functions on node paths. *)
@@ -1589,7 +1586,7 @@ module Private: sig
         (P: Path.S)
         (M: Metadata.S)
         (S: sig
-           include AO
+           include AO.S
            module Key: Hash.S with type t = key
            module Val: S with type t = value
                           and type node = key
@@ -1718,8 +1715,7 @@ module Private: sig
 
       (** {1 Commit values} *)
 
-      type t
-      (** The type for commit values. *)
+      include Type.S
 
       type commit
       (** Type for commit keys. *)
@@ -1741,9 +1737,6 @@ module Private: sig
 
       (** {1 Value Types} *)
 
-      val t: t Type.t
-      (** [t] is the value type for {!t}. *)
-
       val commit_t: commit Type.t
       (** [commit_t] is the value type for {!commit}. *)
 
@@ -1754,7 +1747,7 @@ module Private: sig
 
     (** [Make] provides a simple implementation of commit values,
         parameterized by the commit [C] and node [N]. *)
-    module Make (C: Contents.S0) (N: Contents.S0):
+    module Make (C: Type.S) (N: Type.S):
       S with type commit = C.t and type node = N.t
 
     (** [STORE] specifies the signature for commit stores. *)
@@ -1762,7 +1755,7 @@ module Private: sig
 
       (** {1 Commit Store} *)
 
-      include AO
+      include AO.S
 
       val merge: t -> info:Info.f -> key option Merge.t
       (** [merge] is the 3-way merge function for commit keys. *)
@@ -1782,7 +1775,7 @@ module Private: sig
     module Store
         (N: Node.STORE)
         (S: sig
-           include AO
+           include AO.S
            module Key: Hash.S with type t = key
            module Val: S with type t = value
                           and type commit = key
@@ -1879,8 +1872,7 @@ module Private: sig
 
       (** {1 Slices} *)
 
-      type t
-      (** The type for slices. *)
+      include Type.S
 
       type contents
       (** The type for exported contents. *)
@@ -1904,9 +1896,6 @@ module Private: sig
       (** [iter t f] calls [f] on all values of [t]. *)
 
       (** {1 Value Types} *)
-
-      val t: t Type.t
-      (** [t] is the value type for {!t}. *)
 
       val contents_t: contents Type.t
       (** [content_t] is the value type for {!contents}. *)
@@ -1962,7 +1951,7 @@ module Private: sig
 
     (** [None] is an implementation of {{!Private.Sync.S}S} which does
         nothing. *)
-    module None (H: Contents.S0) (B: Contents.S0): sig
+    module None (H: Type.S) (B: Type.S): sig
       include S with type commit = H.t and type branch = B.t
 
       val v: 'a -> t Lwt.t
@@ -2820,11 +2809,11 @@ module Json_tree(Store: S with type contents = Contents.json): sig
 end
 
 (** [S_MAKER] is the signature exposed by any backend providing {!S}
-    implementations. [M] is the implementation of user-defined
-    metadata, [C] is the one for user-defined contents, [B] is the
-    implementation for branches and [H] is the implementation for
-    object (blobs, trees, commits) hashes. It does not use any native
-    synchronization primitives. *)
+   implementations. [M] is the implementation of user-defined
+   metadata, [C] is the one for user-defined contents, [B] is the
+   implementation for branches and [H] is the implementation for
+   object (blobs, trees, commits) hashes. It does not use any native
+   synchronization primitives. *)
 module type S_MAKER =
   functor (M: Metadata.S) ->
   functor (C: Contents.S) ->
@@ -3183,41 +3172,8 @@ end
     }
 *)
 
-(** [AO_MAKER] is the signature exposed by append-only store
-    backends. [K] is the implementation of keys and [V] is the
-    implementation of values. *)
-module type AO_MAKER = sig
 
-  include RO with type key = string and type value = string
-
-  val add: t -> string -> string -> unit Lwt.t
-  (** [add t k v] adds the bindings [k -> v] to the store. [k] is
-     supposed to derived from [v] using {{!Hash.S}deterministic
-     hashes. *)
-end
-
-(** [LINK_MAKER] is the signature exposed by store which enable adding
-    relation between keys. This is used to decouple the way keys are
-    manipulated by the Irmin runtime and the keys used for
-    storage. This is useful when trying to optimize storage for
-    random-access file operations or for encryption. *)
-module type LINK_MAKER =  LINK with type key = string and type value = string
-
-(** [RW_MAKER] is the signature exposed by read-write store
-    backends. [K] is the implementation of keys and [V] is the
-    implementation of values.*)
-module type RW_MAKER = sig
-
-  include RO with type key = string and type value = string
-
-  val set: t -> key -> value -> unit Lwt.t
-  val test_and_set:
-    t -> key -> test:value option -> set:value option -> bool Lwt.t
-  val remove: t -> key -> unit Lwt.t
-  val list: t -> key list Lwt.t
-end
-
-module Make (AO: AO_MAKER) (RW: RW_MAKER): S_MAKER
+module Make (AO: AO.MAKER) (RW: RW.MAKER): S_MAKER
 (** Simple store creator. Use the same type of all of the internal
     keys and store all the values in the same store. *)
 

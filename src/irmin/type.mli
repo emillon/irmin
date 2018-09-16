@@ -75,6 +75,8 @@ val equal: 'a t -> 'a -> 'a -> bool
 val compare: 'a t -> 'a -> 'a -> int
 
 val pp_json: ?minify:bool -> 'a t -> 'a Fmt.t
+val of_json_string: 'a t -> string -> ('a, [`Msg of string]) result
+
 val encode_json: 'a t -> Jsonm.encoder -> 'a -> unit
 val decode_json: 'a t -> Jsonm.decoder -> ('a, [`Msg of string]) result
 val decode_json_lexemes:
@@ -90,3 +92,12 @@ val encode_string: ?buf:bytes -> 'a t -> 'a -> string
 val decode_string: ?exact:bool -> 'a t -> string -> ('a, [`Msg of string]) result
 
 val size_of: 'a t -> 'a -> int
+
+type 'a ty = 'a t
+
+module type S = sig
+  type t
+  val t: t ty
+  val pp: t Fmt.t
+  val of_string: string -> (t, [`Msg of string]) result
+end

@@ -1,5 +1,5 @@
 (*
- * Copyright (c) 2013-2017 Thomas Gazagnaire <thomas@gazagnaire.org>
+ * Copyright (c) 2013-2018 Thomas Gazagnaire <thomas@gazagnaire.org>
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -14,17 +14,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  *)
 
-(** Provenance tracking. *)
-
-include Type.S
-
-val v: date:int64 -> author:string -> string -> t
-val date: t -> int64
-val author: t -> string
-val message: t -> string
-val with_message: t -> string -> t
-
-val empty: t
-
-type f = unit -> t
-val none: f
+module Make (RW: S.RW_MAKER) (K: Type.S) (V: S.HASH):
+  S.RW with type t = RW.t
+        and type key = K.t
+        and type value = V.t

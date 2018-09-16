@@ -317,7 +317,11 @@ module Make (P: S.PRIVATE) = struct
 
     let to_key t = match t.v with
       | Key (_, k) | Both (_, k, _) -> k
-      | Map m -> P.Node.Key.digest P.Node.Val.t (export_map m)
+      | Map m ->
+        (* XXX: need to ensure that P.Node.Val.t is always using
+           the right encoding *)
+        let v = Type.encode_string P.Node.Val.t (export_map m) in
+        P.Node.Key.digest v
 
     let is_empty t =
       to_map t >|= function
@@ -465,11 +469,12 @@ module Make (P: S.PRIVATE) = struct
           let mold =
             Merge.bind_promise old (fun old () ->
                 match old with
-                | `Contents (_, m) -> Lwt.return (Ok (Some m))
+                | `Contents (_, m) -> Lwt.return (Ok (Some (Some m)))
                 | `Node _          -> Lwt.return (Ok None)
               )
           in
-          Merge.(f Metadata.merge) ~old:mold cx cy >>=* fun m ->
+          Merge.(f Metadata.merge) ~old:mold (Some cx) (Some cy) >>=* fun m ->
+          let m = match m with None -> Metadata.default | Some m -> m in
           let old =
             Merge.bind_promise old (fun old () ->
                 match old with

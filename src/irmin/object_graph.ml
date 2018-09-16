@@ -53,15 +53,15 @@ module type S = sig
   type dump = vertex list * (vertex * vertex) list
   val export: t -> dump
   val import: dump -> t
-  module Dump: S.S0 with type t = dump
+  module Dump: Type.S with type t = dump
 end
 
 module Make
-    (Contents: S.S0)
-    (Metadata: S.S0)
-    (Node:     S.S0)
-    (Commit:   S.S0)
-    (Branch:   S.S0)
+    (Contents: Type.S)
+    (Metadata: Type.S)
+    (Node:     Type.S)
+    (Commit:   Type.S)
+    (Branch:   Type.S)
 = struct
 
   module X = struct
@@ -105,6 +105,8 @@ module Make
   module Dump = struct
     type t = X.t list * (X.t * X.t) list
     let t = Type.(pair (list X.t) (list (pair X.t X.t)))
+    let pp = Type.pp_json t
+    let of_string = Type.of_json_string t
   end
 
   let vertex g =

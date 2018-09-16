@@ -40,13 +40,11 @@ let node ~default c m n =
   |> sealr
 
 module No_metadata = struct
-  type t = unit
-  let t = Type.unit
+  include Contents.Unit
   let default = ()
-  let merge = Merge.v t (fun ~old:_ () () -> Merge.ok ())
 end
 
-module Make (K_c: S.S0) (K_n: S.S0) (P: S.PATH) (M: S.METADATA) =
+module Make (K_c: Type.S) (K_n: Type.S) (P: S.PATH) (M: S.METADATA) =
 struct
 
   type contents = K_c.t
@@ -109,7 +107,8 @@ struct
   let contents_t = K_c.t
   let metadata_t = M.t
   let t = Type.like Type.(list (pair P.step_t value_t)) of_list list
-
+  let pp = Type.pp_json t
+  let of_string = Type.of_json_string t
 end
 
 module Store
@@ -166,15 +165,14 @@ struct
   (* [Merge.alist] expects us to return an option. [C.merge] does
      that, but we need to consider the metadata too... *)
   let merge_contents_meta c =
-    (* This gets us [C.t option, S.Val.Metadata.t]. We want [(C.t *
-       S.Val.Metadata.t) option]. *)
     let explode = function
-      | None        -> None, M.default
-      | Some (c, m) -> Some c, m
+      | None        -> None  , None
+      | Some (c, m) -> Some c, Some m
     in
     let implode = function
-      | None  , _ -> None
-      | Some c, m -> Some (c, m)
+      | None  , _      -> None
+      | Some c, Some m -> Some (c, m)
+      | Some c, None   -> Some (c, Metadata.default)
     in
     Merge.like Type.(option (pair contents_t metadata_t))
       (Merge.pair (C.merge c) M.merge)
@@ -221,6 +219,8 @@ struct
 
 end
 
+module U = Contents.Unit
+
 module Graph (S: S.NODE_STORE) = struct
 
   module Path = S.Path
@@ -245,7 +245,6 @@ module Graph (S: S.NODE_STORE) = struct
     | Some n -> S.Val.list n
 
 
-  module U = struct type t = unit let t = Type.unit end
   module Graph = Object_graph.Make(Contents)(Metadata)(S.Key)(U)(U)
 
   let edges t =
@@ -275,14 +274,17 @@ module Graph (S: S.NODE_STORE) = struct
 
   let v t xs = S.add t (S.Val.v xs)
 
+  let pp_key = S.Key.pp
+  let pp_path = S.Path.pp
+
   let find_step t node step =
-    Log.debug (fun f -> f "contents %a" S.Key.pp node);
+    Log.debug (fun f -> f "contents %a" pp_key node);
     S.find t node >|= function
     | None   -> None
     | Some n -> S.Val.find n step
 
   let find t node path =
-    Log.debug (fun f -> f "read_node_exn %a %a" S.Key.pp node S.Path.pp path);
+    Log.debug (fun f -> f "read_node_exn %a %a" pp_key node pp_path path);
     let rec aux node path =
       match Path.decons path with
       | None         -> Lwt.return (Some (`Node node))
@@ -319,7 +321,7 @@ module Graph (S: S.NODE_STORE) = struct
     )
 
   let map t node path f =
-    Log.debug (fun f -> f "map %a %a" S.Key.pp node S.Path.pp path);
+    Log.debug (fun f -> f "map %a %a" pp_key node pp_path path);
     let rec aux node path =
       match Path.decons path with
       | None         -> Lwt.return (f node)
@@ -333,7 +335,7 @@ module Graph (S: S.NODE_STORE) = struct
     S.add t
 
   let update t node path n =
-    Log.debug (fun f -> f "update %a %a" S.Key.pp node S.Path.pp path);
+    Log.debug (fun f -> f "update %a %a" pp_key node pp_path path);
     match Path.rdecons path with
     | Some (path, file) ->
       map t node path (fun node -> S.Val.update node file n)

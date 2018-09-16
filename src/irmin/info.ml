@@ -42,3 +42,6 @@ let date t = t.date
 let author t = t.author
 let message t = t.message
 let none = fun () -> empty
+
+let pp = Type.pp_json t
+let of_string = Type.of_json_string t

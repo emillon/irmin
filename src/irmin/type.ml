@@ -49,7 +49,7 @@ end
 
 type len = [`Int8 | `Int16 | `Int32 | `Int64 | `Fixed of int ]
 
-type _ t =
+type 'a t =
   | Self   : 'a self -> 'a t
   | Like   : ('a, 'b) like -> 'b t
   | Prim   : 'a prim -> 'a t
@@ -157,19 +157,19 @@ module Refl = struct
     | Bytes _   , Bytes _   -> Some Refl
     | _ -> None
 
-  let rec eq: type a b. a t -> b t -> (a, b) eq option = fun a b ->
+  let rec t: type a b. a t -> b t -> (a, b) eq option = fun a b ->
     match a, b with
-    | Self a, b -> eq a.self b
-    | a, Self b -> eq a b.self
+    | Self a, _ -> t a.self b
+    | _, Self b -> t a b.self
     | Like a, Like b -> Witness.eq a.lwit b.lwit
     | Prim a, Prim b -> prim a b
     | Array a, Array b ->
-      (match eq a.v b.v with Some Refl -> Some Refl | None -> None)
+      (match t a.v b.v with Some Refl -> Some Refl | None -> None)
     | List a, List b ->
-      (match eq a.v b.v with Some Refl -> Some Refl | None -> None)
+      (match t a.v b.v with Some Refl -> Some Refl | None -> None)
     | Tuple a, Tuple b -> tuple a b
     | Option a, Option b ->
-      (match eq a b with Some Refl -> Some Refl | None -> None)
+      (match t a b with Some Refl -> Some Refl | None -> None)
     | Record a, Record b   -> Witness.eq a.rwit b.rwit
     | Variant a, Variant b -> Witness.eq a.vwit b.vwit
     | _ -> None
@@ -177,11 +177,11 @@ module Refl = struct
   and tuple: type a b. a tuple -> b tuple -> (a, b) eq option = fun a b ->
     match a, b with
     | Pair (a0, a1), Pair (b0, b1) ->
-      (match eq a0 b0, eq a1 b1 with
+      (match t a0 b0, t a1 b1 with
        | Some Refl, Some Refl -> Some Refl
        | _ -> None)
     | Triple (a0, a1, a2), Triple (b0, b1, b2) ->
-      (match eq a0 b0, eq a1 b1, eq a2 b2 with
+      (match t a0 b0, t a1 b1, t a2 b2 with
        | Some Refl, Some Refl, Some Refl -> Some Refl
        | _ -> None)
     | _ -> None
@@ -209,7 +209,7 @@ let triple a b c = Tuple (Triple (a, b, c))
 let option a = Option a
 
 let like (type a b) (x: a t) (f: a -> b) (g: b -> a) =
-  Like { x; f; g; lwit = Witness.make () }
+  Like { x = x; f; g; lwit = Witness.make () }
 
 (* fix points *)
 
@@ -221,7 +221,7 @@ let mu: type a. (a t -> a t) -> a t = fun f ->
 
 let mu2: type a b. (a t -> b t -> a t * b t) -> a t * b t = fun f ->
   let rec fake_x = { self = Self fake_x } in
-  let rec fake_y = { self =Self fake_y } in
+  let rec fake_y = { self = Self fake_y } in
   let real_x, real_y = f (Self fake_x) (Self fake_y) in
   fake_x.self <- real_x;
   fake_y.self <- real_y;
@@ -466,7 +466,7 @@ module Equal = struct
     | _ -> false
 
   and eq: type a b. (a t * a) -> (b t * b) -> bool = fun (tx, x) (ty, y) ->
-    match Refl.eq tx ty with
+    match Refl.t tx ty with
     | Some Refl -> t tx x y
     | None      -> assert false (* this should never happen *)
 
@@ -589,7 +589,7 @@ module Compare = struct
       | i -> i
 
   and compare: type a b. (a t * a) -> (b t * b) -> int = fun (tx, x) (ty, y) ->
-    match Refl.eq tx ty with
+    match Refl.t tx ty with
     | Some Refl -> t tx x y
     | None      -> assert false (* this should never happen *)
 
@@ -1462,3 +1462,14 @@ let decode_json x d = Decode_json.(t x @@ decoder d)
 let decode_json_lexemes x ls = Decode_json.(t x @@ of_lexemes ls)
 
 let size_of = Size_of.t
+
+type 'a ty = 'a t
+
+module type S = sig
+  type t
+  val t: t ty
+  val pp: t Fmt.t
+  val of_string: string -> (t, [`Msg of string]) result
+end
+
+let of_json_string t s = decode_json t (Jsonm.decoder (`String s))

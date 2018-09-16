@@ -22,7 +22,6 @@ module String_list = struct
   let step_t = Type.string
 
   type t = step list
-  let t = Type.(list step_t)
 
   let empty = []
   let is_empty l = (l = [])
@@ -54,5 +53,7 @@ module String_list = struct
     Fmt.string ppf (Buffer.contents buf)
 
   let of_string s = Ok (List.filter ((<>)"") (String.cuts s ~sep:"/"))
+
+  let t = Type.list step_t
 
 end

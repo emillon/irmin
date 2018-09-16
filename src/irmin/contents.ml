@@ -16,6 +16,23 @@
 
 open Lwt.Infix
 
+module Unit = struct
+  type t = unit
+
+  let t = Type.unit
+
+  let merge = Merge.v (Type.option t) (fun ~old:_ x y ->
+      match x, y with
+      | None, None -> Merge.ok None
+      | _          -> Merge.ok (Some ()))
+
+  let pp ppf () = Fmt.string ppf ""
+
+  let of_string = function
+    | "" -> Ok ()
+    | e  -> Error (`Msg e)
+end
+
 module String = struct
   type t = string
   let t = Type.string

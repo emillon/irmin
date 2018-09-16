@@ -20,7 +20,7 @@ let store =
   Irmin_test.store (module Irmin_mem.Make) (module Irmin.Metadata.None)
 
 module Link = struct
-  include Irmin_mem.Link(Irmin.Hash.SHA1)
+  include Irmin_mem.Link
   let v () = v (Irmin_mem.config ())
 end
 

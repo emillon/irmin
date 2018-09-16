@@ -38,8 +38,6 @@ let is_valid_utf8 str =
     true
   with Utf8_failure -> false
 
-module type PP = sig type t val pp: t Fmt.t end
-
 module Make (S: S.STORE) = struct
 
   type db = S.t
@@ -65,9 +63,10 @@ module Make (S: S.STORE) = struct
     let add_edge v1 l v2 =
       if mem_vertex v1 && mem_vertex v2 then edges := (v1, l, v2) :: !edges
     in
-    let string_of_key (type t) (module M: PP with type t = t) (k:t) =
+    let string_of_key (type t) (module M: Type.S with type t = t) (k:t) =
       let s = Fmt.to_to_string M.pp k in
-      if String.length s <= 8 then s else String.with_range s ~len:8 in
+      if String.length s <= 8 then s else String.with_range s ~len:8
+    in
     let string_of_contents s =
       let s =
         if String.length s <= 10 then s
@@ -123,13 +122,14 @@ module Make (S: S.STORE) = struct
                   \  <div>&nbsp</div>\n\
                    </div>" k
         else
-           let v = string_of_contents (Fmt.to_to_string Contents.Val.pp v) in
-           sprintf "%s (%s)" k (String.Ascii.escape_string v) in
+          let str = Fmt.to_to_string Contents.Val.pp v in
+          let v = string_of_contents str in
+          sprintf "%s (%s)" k (String.Ascii.escape_string v) in
       `Label s in
     let label_of_tag t =
       let s =
         if html then
-          sprintf "<div class='tag'>%s</div>" (Fmt.to_to_string Branch.Key.pp t)
+          Fmt.strf "<div class='tag'>%a</div>" Branch.Key.pp t
         else
           Fmt.to_to_string Branch.Key.pp t
       in

@@ -19,113 +19,76 @@ open Lwt.Infix
 let src = Logs.Src.create "irmin.mem" ~doc:"Irmin in-memory store"
 module Log = (val Logs.src_log src : Logs.LOG)
 
-module RO (K: Irmin.Contents.Conv) (V: Irmin.Contents.Conv) = struct
+module RO = struct
 
-  module KMap = Map.Make(struct
-      type t = K.t
-      let compare = Irmin.Type.compare K.t
-    end)
+  module KMap = Map.Make(String)
 
-  type key = K.t
-  type value = V.t
+  type key = string
+  type value = string
   type t = { mutable t: value KMap.t }
   let map = { t = KMap.empty }
   let v _config = Lwt.return map
 
-  let find { t; _ } key =
-    Log.debug (fun f -> f "find %a" K.pp key);
+  let find pp { t; _ } key =
+    Log.debug (fun f -> f "find %a" pp key);
     try Lwt.return (Some (KMap.find key t))
     with Not_found -> Lwt.return_none
 
-  let mem { t; _ } key =
-    Log.debug (fun f -> f "mem %a" K.pp key);
+  let mem pp { t; _ } key =
+    Log.debug (fun f -> f "mem %a" pp key);
     Lwt.return (KMap.mem key t)
 
 end
 
-module AO (K: Irmin.Hash.S) (V: Irmin.Contents.Conv) = struct
 
-  include RO(K)(V)
+let pp_hex ppf x = let `Hex h = Hex.of_string x in Fmt.string ppf h
 
-  let add t value =
-    let key = K.digest V.t value in
-    Log.debug (fun f -> f "add -> %a" K.pp key);
+module AO = struct
+
+  include RO
+
+  let find = find pp_hex
+  let mem = mem pp_hex
+
+  let add t key value =
+    Log.debug (fun f -> f "add %a" pp_hex key);
     t.t <- KMap.add key value t.t;
-    Lwt.return key
+    Lwt.return ()
 
 end
 
-module Link (K: Irmin.Hash.S) = struct
+module Link = AO
 
-  include RO(K)(K)
+module RW = struct
 
-  let add t index key =
-    Log.debug (fun f -> f "add link");
-    t.t <- KMap.add index key t.t;
-    Lwt.return_unit
+  include RO
 
-end
-
-module RW (K: Irmin.Contents.Conv) (V: Irmin.Contents.Conv) = struct
-
-  module RO = RO(K)(V)
-  module W = Irmin.Private.Watch.Make(K)(V)
-  module L = Irmin.Private.Lock.Make(K)
-
-  type t = { t: RO.t; w: W.t; lock: L.t }
-  type key = RO.key
-  type value = RO.value
-  type watch = W.watch
-
-  let watches = W.v ()
-  let lock = L.v ()
-
-  let v config =
-    RO.v config >>= fun t ->
-    Lwt.return { t; w = watches; lock }
-
-  let find t = RO.find t.t
-  let mem t = RO.mem t.t
-  let watch_key t = W.watch_key t.w
-  let watch t = W.watch t.w
-  let unwatch t = W.unwatch t.w
+  let pp = Fmt.string
+  let find = find pp
+  let mem = mem pp
 
   let list t =
-    Log.debug (fun f -> f "list");
-    RO.KMap.fold (fun k _ acc -> k :: acc) t.t.RO.t []
+    RO.KMap.fold (fun k _ acc -> k :: acc) t.t []
     |> Lwt.return
 
   let set t key value =
-    Log.debug (fun f -> f "update");
-    L.with_lock t.lock key (fun () ->
-        t.t.RO.t <- RO.KMap.add key value t.t.RO.t;
-        Lwt.return_unit
-      ) >>= fun () ->
-    W.notify t.w key (Some value)
+    t.t <- RO.KMap.add key value t.t;
+    Lwt.return ()
 
   let remove t key =
-    Log.debug (fun f -> f "remove");
-    L.with_lock t.lock key (fun () ->
-        t.t.RO.t <- RO.KMap.remove key t.t.RO.t ;
-        Lwt.return_unit
-      ) >>= fun () ->
-    W.notify t.w key None
+    t.t <- RO.KMap.remove key t.t;
+    Lwt.return_unit
 
   let test_and_set t key ~test ~set =
-    Log.debug (fun f -> f "test_and_set");
-    L.with_lock t.lock key (fun () ->
-        find t key >>= fun v ->
-        if Irmin.Type.(equal (option V.t)) test v then (
-          let () = match set with
-            | None   -> t.t.RO.t <- RO.KMap.remove key t.t.RO.t
-            | Some v -> t.t.RO.t <- RO.KMap.add key v t.t.RO.t
-          in
-          Lwt.return true
-        ) else
-          Lwt.return false
-      ) >>= fun updated ->
-    (if updated then W.notify t.w key set else Lwt.return_unit) >>= fun () ->
-    Lwt.return updated
+    find t key >>= fun v ->
+    if Irmin.Type.(equal (option string)) test v then (
+      let () = match set with
+        | None   -> t.t <- RO.KMap.remove key t.t
+        | Some v -> t.t <- RO.KMap.add key v t.t
+      in
+      Lwt.return true
+    ) else
+      Lwt.return false
 
 end
 
