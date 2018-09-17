@@ -16,16 +16,21 @@
 
 open Lwt.Infix
 
+let src = Logs.Src.create "irmin" ~doc:"Irmin branch-consistent store"
+module Log = (val Logs.src_log src : Logs.LOG)
+
 module Make (AO: S.AO_MAKER) (K: S.HASH) (V: Type.S) = struct
 
   include RO.Make(AO)(K)(V)
 
-  let key = Type.encode_string K.t
-  let value = Type.encode_string V.t
+  let pp_key = Type.pp K.t
+  let key = Type.encode_bin K.t
+  let value = Type.encode_bin V.t
 
   let add t v =
     let v = value v in
     let k = K.digest v in
+    Log.debug (fun l -> l "add %a" pp_key k);
     AO.add t (key k) v >|= fun () ->
     k
 

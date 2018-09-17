@@ -34,8 +34,8 @@ module Make (S: S.STORE) = struct
   type commit = S.commit
 
   let conv dx dy x =
-    let str = Fmt.to_to_string (Type.pp_json dx) x in
-    Type.decode_json dy (Jsonm.decoder (`String str))
+    let str = Type.encode_bin dx x in
+    Type.decode_bin dy str
 
   let convert_slice (type r) (type s)
       (module RP: PRIVATE with type Slice.t = r)
@@ -82,9 +82,12 @@ module Make (S: S.STORE) = struct
     match String.cut ~sep:"#" uri with
     | None           -> uri, None
     | Some (uri, br) ->
-      match S.Branch.of_string br with
+      match Type.of_string S.Branch.t br with
       | Error (`Msg e) -> invalid_arg e
       | Ok br          -> uri, Some br
+
+  let pp_branch = Type.pp S.Branch.t
+  let pp_hash = Type.pp S.Commit.Hash.t
 
   let fetch t ?depth remote: (commit, fetch_error) result Lwt.t =
     match remote with
@@ -94,12 +97,12 @@ module Make (S: S.STORE) = struct
       begin match br, S.status t with
         | None, (`Empty | `Commit _) -> Lwt.return (Error `No_head)
         | Some br, _ | None, `Branch br ->
-          Log.debug (fun l -> l "Fetching branch %a" S.Branch.pp br);
+          Log.debug (fun l -> l "Fetching branch %a" pp_branch br);
           B.v (S.repo t) >>= fun g ->
           B.fetch g ?depth ~uri br >>= function
           | Error _ as e -> Lwt.return e
           | Ok c         ->
-            Log.debug (fun l -> l "Fetched %a" S.Commit.Hash.pp c);
+            Log.debug (fun l -> l "Fetched %a" pp_hash c);
             S.Commit.of_hash (S.repo t) c >|= function
             | None   -> Error `No_head
             | Some x -> Ok x

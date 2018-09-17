@@ -64,7 +64,7 @@ module Make (S: S.STORE) = struct
       if mem_vertex v1 && mem_vertex v2 then edges := (v1, l, v2) :: !edges
     in
     let string_of_key (type t) (module M: Type.S with type t = t) (k:t) =
-      let s = Fmt.to_to_string M.pp k in
+      let s = Type.to_string M.t k in
       if String.length s <= 8 then s else String.with_range s ~len:8
     in
     let string_of_contents s =
@@ -84,7 +84,7 @@ module Make (S: S.STORE) = struct
           (string_of_key (module Node.Key) k) in
       `Label s in
     let label_of_step l =
-      let l = Fmt.to_to_string S.Key.pp_step l in
+      let l = Type.to_string S.Key.step_t l in
       let s =
         (if html then
           sprintf "<div class='path'>%s</div>"
@@ -122,16 +122,16 @@ module Make (S: S.STORE) = struct
                   \  <div>&nbsp</div>\n\
                    </div>" k
         else
-          let str = Fmt.to_to_string Contents.Val.pp v in
+          let str = Type.to_string Contents.Val.t v in
           let v = string_of_contents str in
           sprintf "%s (%s)" k (String.Ascii.escape_string v) in
       `Label s in
     let label_of_tag t =
       let s =
         if html then
-          Fmt.strf "<div class='tag'>%a</div>" Branch.Key.pp t
+          Fmt.strf "<div class='tag'>%a</div>" (Type.pp Branch.Key.t) t
         else
-          Fmt.to_to_string Branch.Key.pp t
+          Type.to_string Branch.Key.t t
       in
       `Label s
     in

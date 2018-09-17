@@ -16,9 +16,6 @@
 
 open Lwt.Infix
 
-let src = Logs.Src.create "irmin" ~doc:"Irmin branch-consistent store"
-module Log = (val Logs.src_log src : Logs.LOG)
-
 module Type = Type
 module Diff = Diff
 
@@ -67,8 +64,7 @@ module Link = struct
   module type MAKER = S.LINK_MAKER
   module Make (S: MAKER) (K: Type.S) (V: Type.S) = struct
     include RO.Make(S)(K)(V)
-    let add t k v =
-      S.add t (Type.encode_string K.t k) (Type.encode_string V.t v)
+    let add t k v = S.add t (Type.encode_bin K.t k) (Type.encode_bin V.t v)
   end
 end
 

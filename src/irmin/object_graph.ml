@@ -87,7 +87,7 @@ module Make
 
     let equal = Type.equal t
     let compare = Type.compare t
-    let hash x = Hashtbl.hash (Fmt.to_to_string Type.(dump t) x)
+    let hash x = Hashtbl.hash (Type.to_string t x)
   end
 
   module G = Graph.Imperative.Digraph.ConcreteBidirectional(X)
@@ -105,8 +105,6 @@ module Make
   module Dump = struct
     type t = X.t list * (X.t * X.t) list
     let t = Type.(pair (list X.t) (list (pair X.t X.t)))
-    let pp = Type.pp_json t
-    let of_string = Type.of_json_string t
   end
 
   let vertex g =
@@ -133,7 +131,7 @@ module Make
         else if has_mark key then add ()
         else (
           mark key level;
-          Log.debug (fun f -> f "ADD %a %d" Type.(dump X.t) key level);
+          Log.debug (fun f -> f "ADD %a %d" Type.(pp X.t) key level);
           if not (G.mem_vertex g key) then G.add_vertex g key;
           pred key >>= fun keys ->
           List.iter (fun k -> G.add_edge g k key) keys;
@@ -165,7 +163,7 @@ module Make
       let edge_attributes k = !edge_attributes k
       let default_edge_attributes _ = []
       let vertex_name k =
-        let str t v = Fmt.strf "%a" (Type.dump t) v in
+        let str t v = Type.to_string t v in
         match k with
           | `Node n          -> str Node.t n
           | `Commit c        -> str Commit.t c

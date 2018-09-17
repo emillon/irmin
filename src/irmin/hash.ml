@@ -16,20 +16,17 @@
 
 module Make (H: Digestif.S) = struct
   type t = H.t
-  let to_hex = H.to_hex
   let digest_size = H.digest_size
-  let of_hex = H.consistent_of_hex
   let digest x = H.digest_string x
-  let pp ppf x = Fmt.string ppf (to_hex x)
-
-  let of_string x =
-    try Ok (of_hex x)
-    with Invalid_argument e -> Error (`Msg e)
-
   external get_64: string -> int -> int64 = "%caml_string_get64u"
   let hash c = Int64.to_int (get_64 (H.to_raw_string c) 0)
+  let pp ppf x = Fmt.string ppf (H.to_hex x)
 
-  let t = Type.(like string) H.of_raw_string H.to_raw_string
+  let of_string x =
+    try Ok (H.consistent_of_hex x)
+    with Invalid_argument e -> Error (`Msg e)
+
+  let t = Type.(like string) ~cli:(pp, of_string) H.of_raw_string H.to_raw_string
 
 end
 

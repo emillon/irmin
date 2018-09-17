@@ -15,8 +15,6 @@
  *)
 
 open Lwt.Infix
-open Printf
-open Result
 
 let src = Logs.Src.create "irmin.merge" ~doc:"Irmin merging"
 module Log = (val Logs.src_log src : Logs.LOG)
@@ -43,7 +41,7 @@ let v t f = t, f
 let f (x: 'a t) = snd x
 
 let conflict fmt =
-  ksprintf (fun msg ->
+  Fmt.kstrf (fun msg ->
       Log.debug (fun f -> f "conflict: %s" msg);
       Lwt.return (Error (`Conflict msg))
     ) fmt
@@ -80,7 +78,7 @@ end
 open Infix
 
 let default (type a) (t:a Type.t): a t =
-  let pp = Type.dump t and (=) = Type.equal t in
+  let pp = Type.pp t and (=) = Type.equal t in
   t, fun ~old t1 t2 ->
     let open Infix in
     Log.debug (fun f -> f "default %a | %a" pp t1 pp t2);
@@ -114,7 +112,7 @@ let seq = function
 
 let option (type a) ((a, t): a t): a option t =
   let dt = Type.(option a) in
-  let pp = Type.(dump dt) in
+  let pp = Type.(pp dt) in
   dt, fun ~old t1 t2->
     Log.debug (fun f -> f "some %a | %a" pp t1 pp t2);
     f (default Type.(option a)) ~old t1 t2 >>= function
@@ -139,13 +137,13 @@ let option (type a) ((a, t): a t): a option t =
         | None
         | Some None     -> ok (Some x)
         | Some (Some o) ->
-          let pp = Type.dump a and (=) = Type.equal a in
+          let pp = Type.pp a and (=) = Type.equal a in
           Log.debug (fun f -> f "option old=%a" pp o);
           if x = o then ok (Some x) else conflict "option: add/del"
 
 let pair (da, a) (db, b) =
   let dt = Type.pair da db in
-  let pp = Type.dump dt in
+  let pp = Type.pp dt in
   dt, fun ~old x y ->
     Log.debug (fun f -> f "pair %a | %a" pp x pp y);
     (snd (default dt)) ~old x y >>= function
@@ -160,7 +158,7 @@ let pair (da, a) (db, b) =
 
 let triple (da, a) (db, b) (dc, c) =
   let dt = Type.triple  da db dc in
-  let pp = Type.dump dt in
+  let pp = Type.pp dt in
   dt, fun ~old x y ->
     Log.debug (fun f -> f "triple %a | %a" pp x pp y);
     (snd (default dt)) ~old x y >>= function
@@ -237,7 +235,7 @@ let alist dx dy merge_v =
   let dt = Type.(list (pair dx dy)) in
   dt, fun ~old x y ->
     let pair = Type.pair dx dy in
-    let pp = Type.dump dt in
+    let pp = Type.pp dt in
     Log.debug (fun l -> l "alist %a | %a" pp x pp y);
     let sort = List.sort @@ Type.compare pair in
     let x = sort x in
@@ -296,7 +294,7 @@ struct
   module S = Set.Make(K)
   let of_list l = List.fold_left (fun set elt -> S.add elt set) S.empty l
   let t = Type.(like @@ list K.t) of_list S.elements
-  let pp = Type.dump t
+  let pp = Type.pp t
 
   let merge ~old x y =
     Log.debug (fun l -> l "merge %a %a" pp x pp y);
@@ -341,7 +339,7 @@ module Map (K: sig
     Lwt.return m3
 
   let merge dv (merge_v: K.t -> 'a option t) =
-    let pp ppf m = Type.(dump (list (pair K.t dv))) ppf @@ M.bindings m in
+    let pp ppf m = Type.(pp (list (pair K.t dv))) ppf @@ M.bindings m in
     let merge_v k = f (merge_v k) in
     t dv, fun ~old m1 m2 ->
       Log.debug (fun f -> f "assoc %a | %a" pp m1 pp m2);
@@ -363,7 +361,7 @@ module Map (K: sig
 end
 
 let like da t a_to_b b_to_a =
-  let pp = Type.dump da in
+  let pp = Type.pp da in
   let merge ~old a1 a2 =
     Log.debug (fun f -> f "biject %a | %a" pp a1 pp a2);
     try
@@ -381,7 +379,7 @@ let like da t a_to_b b_to_a =
   ]
 
 let like_lwt (type a b) da (t: b t) (a_to_b:a -> b Lwt.t) (b_to_a: b -> a Lwt.t): a t =
-  let pp = Type.dump da in
+  let pp = Type.pp da in
   let merge ~old a1 a2 =
     Log.debug (fun f -> f "biject' %a | %a" pp a1 pp a2);
     try

@@ -107,8 +107,6 @@ struct
   let contents_t = K_c.t
   let metadata_t = M.t
   let t = Type.like Type.(list (pair P.step_t value_t)) of_list list
-  let pp = Type.pp_json t
-  let of_string = Type.of_json_string t
 end
 
 module Store
@@ -253,7 +251,7 @@ module Graph (S: S.NODE_STORE) = struct
       | _, `Contents c -> `Contents c
     ) (S.Val.list t)
 
-  let pps = Fmt.(Dump.list S.Key.pp)
+  let pps = Fmt.(Dump.list (Type.pp S.Key.t))
 
   let closure t ~min ~max =
     Log.debug (fun f -> f "closure min=%a max=%a" pps min pps max);
@@ -274,8 +272,9 @@ module Graph (S: S.NODE_STORE) = struct
 
   let v t xs = S.add t (S.Val.v xs)
 
-  let pp_key = S.Key.pp
-  let pp_path = S.Path.pp
+  let pp_key = Type.pp S.Key.t
+  let pp_path = Type.pp S.Path.t
+  let pp_step = Type.pp S.Path.step_t
 
   let find_step t node step =
     Log.debug (fun f -> f "contents %a" pp_key node);
@@ -298,7 +297,7 @@ module Graph (S: S.NODE_STORE) = struct
   let err_empty_path () = invalid_arg "Irmin.node: empty path"
 
   let map_one t node f label =
-    Log.debug (fun f -> f "map_one %a" Type.(dump Path.step_t) label);
+    Log.debug (fun f -> f "map_one %a" pp_step label);
     let old_key = S.Val.find node label in
     begin match old_key with
       | None | Some (`Contents _) -> Lwt.return S.Val.empty

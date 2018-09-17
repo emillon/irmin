@@ -82,6 +82,11 @@ module Make (P: S.PRIVATE) = struct
     type hash = Hash.t
     type t = { r: repo; h: Hash.t; v: P.Commit.value }
 
+    let of_hash r h =
+      P.Commit.find (P.Repo.commit_t r) h >|= function
+      | None   -> None
+      | Some v -> Some { r; h; v }
+
     let t r =
       let open Type in
       record "commit" (fun h v -> { r; h; v })
@@ -108,18 +113,8 @@ module Make (P: S.PRIVATE) = struct
     let hash t = t.h
     let info t = P.Commit.Val.info t.v
 
-    let of_hash r h =
-      P.Commit.find (P.Repo.commit_t r) h >|= function
-      | None   -> None
-      | Some v -> Some { r; h; v }
-
     let parents t =
       Lwt_list.filter_map_p (of_hash t.r) (P.Commit.Val.parents t.v)
-
-    let pp ppf t = Hash.pp ppf t.h
-
-    let of_string repo str =
-      Type.decode_json (t repo) (Jsonm.decoder (`String str))
 
     let equal_opt x y =
       match x, y with
@@ -244,7 +239,7 @@ module Make (P: S.PRIVATE) = struct
             S.add (s t) v >>= fun k' ->
             if not (Type.equal dk k k') then (
               import_error "%s import error: expected %a, got %a"
-                name Type.(dump dk) k Type.(dump dk) k'
+                name Type.(pp dk) k Type.(pp dk) k'
             )
             else Lwt.return_unit
           )
@@ -325,8 +320,11 @@ module Make (P: S.PRIVATE) = struct
       tree  = None;
     }
 
+  let pp_branch = Type.pp Branch_store.Key.t
+  let pp_hash = Type.pp Commit.Hash.t
+
   let err_invalid_branch t =
-    let err = Fmt.strf "%a is not a valid branch name." Branch_store.Key.pp t in
+    let err = Fmt.strf "%a is not a valid branch name." pp_branch t in
     Lwt.fail (Invalid_argument err)
 
   let of_branch repo id =
@@ -354,6 +352,8 @@ module Make (P: S.PRIVATE) = struct
         | true  -> Lwt.return_unit
         | false -> fn @@ `Updated ( (x, vx), (y, vy) )
 
+  let pp_commit t = Type.pp (Commit.t t.repo)
+
   let head t =
     let h = match head_ref t with
       | `Head key    -> Lwt.return (Some key)
@@ -364,7 +364,7 @@ module Make (P: S.PRIVATE) = struct
         | Some h -> Commit.of_hash t.repo h
     in
     h >|= fun h ->
-    Log.debug (fun f -> f "Head.find -> %a" Fmt.(option Commit.pp) h);
+    Log.debug (fun f -> f "Head.find -> %a" Fmt.(option (pp_commit t)) h);
     h
 
   let tree_and_head t =
@@ -419,8 +419,10 @@ module Make (P: S.PRIVATE) = struct
         ) >|= fun id ->
       fun () -> Branch_store.unwatch (branch_t t) id
 
+  let pp_key = Type.pp Key.t
+
   let watch_key t key ?init fn =
-    Log.info (fun f -> f "watch-key %a" Key.pp key);
+    Log.info (fun f -> f "watch-key %a" pp_key key);
     let tree c = Commit.tree c >>= fun tree -> Tree.find_tree tree key in
     watch t ?init (lift_tree_diff tree fn)
 
@@ -461,7 +463,7 @@ module Make (P: S.PRIVATE) = struct
       | None  -> test_and_set t ~test:None ~set:(Some new_head) >|= return
       | Some old_head ->
         Log.debug (fun f -> f "fast-forward-head old=%a new=%a"
-                      Commit.pp old_head Commit.pp new_head);
+                      (pp_commit t) old_head (pp_commit t) new_head);
         if Commit.equal new_head old_head then
           (* we only update if there is a change *)
           Lwt.return (Error `No_change)
@@ -651,13 +653,13 @@ module Make (P: S.PRIVATE) = struct
   let none_to_empty = function None -> Tree.empty | Some v -> v
 
   let set t k ?metadata ?allow_empty ?strategy ?max_depth ?n ~info v =
-    Log.debug (fun l -> l "set %a" Key.pp k);
+    Log.debug (fun l -> l "set %a" pp_key k);
     with_tree t ?allow_empty ?strategy ?max_depth ?n ~info k (fun tree ->
         Tree.add (none_to_empty tree) Key.empty ?metadata v >|= fun x ->
         Some x)
 
   let set_tree t k ?allow_empty ?strategy ?max_depth ?n ~info v =
-    Log.debug (fun l -> l "set_tree %a" Key.pp k);
+    Log.debug (fun l -> l "set_tree %a" pp_key k);
     with_tree t ?allow_empty ?strategy ?max_depth ?n ~info k (fun tree ->
         Tree.add_tree (none_to_empty tree) Key.empty v >|= fun x ->
         Some x)
@@ -665,7 +667,7 @@ module Make (P: S.PRIVATE) = struct
   type strategy = [ `Test_and_set | `Set | `Merge ]
 
   let remove t ?allow_empty ?(strategy=`Test_and_set) ?max_depth ?n ~info k =
-    Log.debug (fun l -> l "remove %a" Key.pp k);
+    Log.debug (fun l -> l "remove %a" pp_key k);
     let strategy = (strategy :> strategy) in
     with_tree t ?allow_empty ~strategy ?max_depth ?n ~info k
       (fun _ -> Lwt.return None)
@@ -746,12 +748,11 @@ module Make (P: S.PRIVATE) = struct
     (unit, Merge.conflict) result Lwt.t
 
   let merge_with_branch t ~info ?max_depth ?n other =
-    Log.debug (fun f -> f "merge_with_branch %a" Branch_store.Key.pp other);
+    Log.debug (fun f -> f "merge_with_branch %a" pp_branch other);
     Branch_store.find (branch_t t) other >>= function
     | None  ->
       Fmt.kstrf Lwt.fail_invalid_arg
-        "merge_with_branch: %a is not a valid branch ID"
-        Branch_store.Key.pp other
+        "merge_with_branch: %a is not a valid branch ID" pp_branch other
     | Some c ->
       Commit.of_hash t.repo c >>= function
       | None   -> Lwt.fail_invalid_arg "invalid commit"
@@ -853,7 +854,7 @@ module Make (P: S.PRIVATE) = struct
       (fun () -> Branch_store.unwatch (Repo.branch_t t) w)
 
     let err_not_found k =
-      Fmt.kstrf invalid_arg "Branch.get: %a not found" P.Branch.Key.pp k
+      Fmt.kstrf invalid_arg "Branch.get: %a not found" pp_branch k
 
     let get t k =
       find t k >>= function
@@ -863,7 +864,9 @@ module Make (P: S.PRIVATE) = struct
   end
 
   module Status = struct
+
     type t = [ `Empty | `Branch of branch | `Commit of commit ]
+
     let t r =
       let open Type in
       variant "status" (fun empty branch commit -> function
@@ -877,11 +880,10 @@ module Make (P: S.PRIVATE) = struct
 
     let pp ppf = function
       | `Empty    -> Fmt.string ppf "empty"
-      | `Branch b -> Branch.pp ppf b
-      | `Commit c -> Commit.Hash.pp ppf (Commit.hash c)
+      | `Branch b -> pp_branch ppf b
+      | `Commit c -> pp_hash ppf (Commit.hash c)
 
-    let of_string repo str =
-      Type.decode_json (t repo) (Jsonm.decoder (`String str))
+    let of_string repo str = Type.of_json_string (t repo) str
 
   end
 

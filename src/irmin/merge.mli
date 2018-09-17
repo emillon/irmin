@@ -80,7 +80,8 @@ val like_lwt: 'a Type.t -> 'b t -> ('a -> 'b Lwt.t) -> ('b -> 'a Lwt.t) -> 'a t
 val with_conflict: (string -> string) -> 'a t -> 'a t
 
 val ok: 'a -> ('a, conflict) result Lwt.t
-val conflict: ('a, unit, string, ('b, conflict) result Lwt.t) format4 -> 'a
+val conflict:
+  ('a, Format.formatter, unit, ('b, conflict) result Lwt.t) format4 -> 'a
 
 module Infix: sig
 

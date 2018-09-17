@@ -213,7 +213,8 @@ module Make (P: S.PRIVATE) = struct
       )
 
     let value_t = value t
-    let dump = Type.pp_json ~minify:false t
+    let pp = Type.pp_json ~minify:false t
+    let pp_key = Type.pp P.Node.Key.t
 
     let of_map map = { v = Map map }
     let of_key repo k = { v = Key (repo, k) }
@@ -231,7 +232,7 @@ module Make (P: S.PRIVATE) = struct
     let to_map t = match t.v with
       | Map m | Both (_, _, m) -> Lwt.return (Some m)
       | Key (db, k) ->
-        Log.debug (fun l -> l "Node.to_map %a" P.Node.Key.pp k);
+        Log.debug (fun l -> l "Node.to_map %a" pp_key k);
         P.Node.find (P.Repo.node_t db) k >|= function
         | None   -> None
         | Some n ->
@@ -318,9 +319,9 @@ module Make (P: S.PRIVATE) = struct
     let to_key t = match t.v with
       | Key (_, k) | Both (_, k, _) -> k
       | Map m ->
-        (* XXX: need to ensure that P.Node.Val.t is always using
-           the right encoding *)
-        let v = Type.encode_string P.Node.Val.t (export_map m) in
+        (* XXX(samoht): need to ensure that P.Node.Val.t is always
+           using the right encoding *)
+        let v = Type.encode_bin P.Node.Val.t (export_map m) in
         P.Node.Key.digest v
 
     let is_empty t =
@@ -552,9 +553,13 @@ module Make (P: S.PRIVATE) = struct
     |~ case1 "contents" (pair P.Contents.Val.t Metadata.t) (fun c -> `Contents c)
     |> sealv
 
+  let pp_val = Type.pp P.Contents.Val.t
+  let pp_path = Type.pp Path.t
+  let pp_node = Type.pp P.Node.Key.t
+
   let dump ppf = function
-    | `Node n          -> Fmt.pf ppf "node: %a" Node.dump n
-    | `Contents (c, _) -> Fmt.pf ppf "contents: %a" P.Contents.Val.pp c
+    | `Node n          -> Fmt.pf ppf "node: %a" Node.pp n
+    | `Contents (c, _) -> Fmt.pf ppf "contents: %a" pp_val c
 
   let contents_equal (c1, m1 as x1) (c2, m2 as x2) =
     x1 == x2 ||
@@ -594,7 +599,7 @@ module Make (P: S.PRIVATE) = struct
     | `Contents _ -> Lwt.return_none
 
   let find_tree (t:tree) path =
-    Log.debug (fun l -> l "Tree.find_tree %a" Path.pp path);
+    Log.debug (fun l -> l "Tree.find_tree %a" pp_path path);
     match t, Path.rdecons path with
     | v, None              -> Lwt.return (Some v)
     | _, Some (path, file) ->
@@ -660,7 +665,7 @@ module Make (P: S.PRIVATE) = struct
     fold ~force ~pre ~post f t empty_stats
 
   let err_not_found n k =
-    Fmt.kstrf invalid_arg "Irmin.Tree.%s: %a not found" n Path.pp k
+    Fmt.kstrf invalid_arg "Irmin.Tree.%s: %a not found" n pp_path k
 
   let get_tree (t:tree) path =
     find_tree t path >|= function
@@ -696,7 +701,7 @@ module Make (P: S.PRIVATE) = struct
     | _    -> true
 
   let kind t path =
-    Log.debug (fun l -> l "Tree.kind %a" Path.pp path);
+    Log.debug (fun l -> l "Tree.kind %a" pp_path path);
     match t, Path.rdecons path with
     | `Contents _, None -> Lwt.return (Some `Contents)
     | _          , None -> Lwt.return None
@@ -710,7 +715,7 @@ module Make (P: S.PRIVATE) = struct
         | Some (`Node _)     -> Lwt.return (Some `Node)
 
   let list t path =
-    Log.debug (fun l -> l "Tree.list %a" Path.pp path);
+    Log.debug (fun l -> l "Tree.list %a" pp_path path);
     sub t path >>= function
     | None   -> Lwt.return []
     | Some n -> Node.list n
@@ -721,7 +726,7 @@ module Make (P: S.PRIVATE) = struct
     | Some _ -> Node.remove t k >>= fun t -> Lwt.return (Some t)
 
   let remove t k =
-    Log.debug (fun l -> l "Tree.remove %a" Path.pp k);
+    Log.debug (fun l -> l "Tree.remove %a" pp_path k);
     match Path.rdecons k with
     | None ->
       is_empty t >>= fun is_empty ->
@@ -754,7 +759,7 @@ module Make (P: S.PRIVATE) = struct
     | `Contents c  -> `Contents (`Set c)
 
   let add_tree t k v =
-    Log.debug (fun l -> l "Tree.add_tree %a" Path.pp k);
+    Log.debug (fun l -> l "Tree.add_tree %a" pp_path k);
     match Path.rdecons k with
     | None              -> Lwt.return v
     | Some (path, file) ->
@@ -800,7 +805,7 @@ module Make (P: S.PRIVATE) = struct
     | Some m -> `Contents (`Set (c, m))
 
   let add t k ?metadata c =
-    Log.debug (fun l -> l "Tree.add %a" Path.pp k);
+    Log.debug (fun l -> l "Tree.add %a" pp_path k);
     match Path.rdecons k with
     | None ->
       (match metadata, t with
@@ -907,7 +912,7 @@ module Make (P: S.PRIVATE) = struct
     add_to_todo n;
     loop () >|= fun () ->
     let x = Node.export n in
-    Log.debug (fun l -> l "Tree.export -> %a" P.Node.Key.pp x);
+    Log.debug (fun l -> l "Tree.export -> %a" pp_node x);
     x
 
   let merge: tree Merge.t =

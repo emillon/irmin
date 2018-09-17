@@ -16,8 +16,6 @@
 
 (** Irmin signatures *)
 
-open Result
-
 module type PATH = sig
   include Type.S
   type step
@@ -29,8 +27,6 @@ module type PATH = sig
   val decons: t -> (step * t) option
   val rdecons: t -> (t * step) option
   val map: t -> (step -> 'a) -> 'a list
-  val pp_step: step Fmt.t
-  val step_of_string: string -> (step, [`Msg of string]) result
   val step_t: step Type.t
 end
 
@@ -379,8 +375,6 @@ module type STORE = sig
   module Commit: sig
     type t = commit
     val t: Repo.t -> t Type.t
-    val pp: t Fmt.t
-    val of_string: Repo.t -> string -> (t, [`Msg of string]) result
     val v: Repo.t -> info:Info.t -> parents:commit list -> tree -> commit Lwt.t
     val tree: commit -> tree Lwt.t
     val parents: commit -> commit list Lwt.t

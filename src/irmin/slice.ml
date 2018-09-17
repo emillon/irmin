@@ -45,9 +45,6 @@ struct
       (fun t -> t.commits)
     |> sealr
 
-  let pp = Type.pp_json t
-  let of_string = Type.of_json_string t
-
   let empty () =
     Lwt.return { contents = []; nodes = []; commits = [] }
 

@@ -16,7 +16,6 @@
 
 module String = struct
   type t = string
-  let t = Type.string
   let master = "master"
 
   let is_valid s =
@@ -37,4 +36,6 @@ module String = struct
 
   let pp = Fmt.string
   let of_string x = Ok x
+  let id x = x
+  let t = Type.like ~cli:(pp, of_string) Type.string id id
 end

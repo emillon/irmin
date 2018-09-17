@@ -36,8 +36,6 @@
     {e Release %%VERSION%% - %%HOMEPAGE%% }
 *)
 
-open Result
-
 val version: string
 (** The version of the library. *)
 
@@ -97,17 +95,11 @@ module Type: sig
   val bytes: bytes t
   (** [bytes] is a representation of the [bytes] type. *)
 
-  val cstruct: Cstruct.t t
-  (** [cstruct] is a representation of the [Cstruct.t] type. *)
-
   val string_of: len -> string t
   (** Like {!string} but add control to the size. *)
 
   val bytes_of: len -> bytes t
   (** Like {!bytes} but add control to the size. *)
-
-  val cstruct_of: len -> Cstruct.t t
-  (** Like {!cstruct} but add control to the size. *)
 
   val list: ?len:len -> 'a t -> 'a list t
   (** [list t] is a representation of list of values of type [t]. *)
@@ -310,7 +302,52 @@ module Type: sig
       about.
   *)
 
-  val like: 'a t -> ('a -> 'b) -> ('b -> 'a) -> 'b t
+
+  type 'a pp = 'a Fmt.t
+  (** The type for pretty-printers for CLI arguments. *)
+
+  type 'a of_string = string -> ('a, [`Msg of string]) result
+  (** The type for parsers of CLI arguments. *)
+
+  module Json: sig
+    (** Overlay on top of Jsonm to work with rewindable streams. *)
+
+    type decoder
+    (** The type for JSON decoder. *)
+
+    val decoder: ?encoding:[< Jsonm.encoding ] -> [< Jsonm.src ] -> decoder
+    (** Same as {!Jsonm.decoder}. *)
+
+    val decode: decoder ->
+      [> `Await | `End | `Error of Jsonm.error | `Lexeme of Jsonm.lexeme ]
+      (** Same as {!Jsonm.decode]. *)
+
+    val rewind: decoder -> Jsonm.lexeme -> unit
+    (** [rewind d l] rewinds [l] on top of the current state of
+       [d]. This allows to put back lexemes already seen. *)
+
+  end
+
+  type 'a encode_json = Jsonm.encoder -> 'a -> unit
+  (** The type for JSON encoders. *)
+
+  type 'a decode_json = Json.decoder -> ('a, [`Msg of string]) result
+  (** The type for JSON decoders. *)
+
+  type 'a encode_bin =  bytes -> int -> 'a -> int
+  (** The type for binary encoders. *)
+
+  type 'a decode_bin = string -> int -> int * 'a
+  (** The type for binary decoders. *)
+
+  type 'a size_of = 'a -> int
+  (** The type for size function related to binary encoder/decoders. *)
+
+  val like: 'a t ->
+    ?cli:('b pp * 'b of_string) ->
+    ?json:('b encode_json * 'b decode_json) ->
+    ?bin:('b encode_bin * 'b decode_bin * 'b size_of) ->
+    ('a -> 'b) -> ('b -> 'a) -> 'b t
   (** [like x f g] is the description of a type which looks like [x]
       using the bijetion [(f, g)]. *)
 
@@ -321,9 +358,15 @@ module Type: sig
       unparsing.
   *)
 
-  val dump: 'a t -> 'a Fmt.t
-  (** [dump t] dumps the values of type [t] as a parsable OCaml
-      expression. *)
+  val pp: 'a t -> 'a pp
+  (** [pp t] is the pretty-printer for command-line arguments of type
+     [t]. *)
+
+  val to_string: 'a t -> 'a -> string
+  (** [to_string t] is [Fmt.to_to_string (pp t)]. *)
+
+  val of_string: 'a t -> 'a of_string
+  (** [of_string t] parses command-line arguments of type [t]. *)
 
   val equal: 'a t -> 'a -> 'a -> bool
   (** [equal t] is the equality function between values of type [t]. *)
@@ -357,7 +400,8 @@ module Type: sig
       {b NOTE:} this will automatically convert JSON fragments to valid
       JSON objects by adding an enclosing array if necessary. *)
 
-  val of_json_string: 'a t -> string -> ('a, [`Msg of string]) result
+  val to_json_string: ?minify:bool -> 'a t -> 'a -> string
+  (** [to_json_string] is [Fmt.to_to_string pp_json]. *)
 
   val encode_json: 'a t -> Jsonm.encoder -> 'a -> unit
   (** [encode_json t e] encodes [t] into the
@@ -386,43 +430,32 @@ module Type: sig
   (** [decode_json t e] decodes values of type [t] from the
       {{:http://erratique.ch/software/jsonm}jsonm} decoder [e]. *)
 
+  val of_json_string: 'a t -> string -> ('a, [`Msg of string]) result
+  (** Same as {!decode_json} but using a string as decoder. *)
+
   val decode_json_lexemes: 'a t -> Jsonm.lexeme list ->
     ('a, [`Msg of string]) result
   (** [decode_json_lexemes] is similar to {!decode_json} but use an
       already decoded list of JSON lexemes instead of a decoder. *)
 
-  val encode_cstruct: ?buf:Cstruct.t -> 'a t -> 'a -> Cstruct.t
-  (** [encode_cstruct t e] encodes [t] into a `Cstruct.t`. The size of
-     the returned buffer is precomputed and the buffer is allocated at
-     once.
+  val encode_bin: ?buf:bytes -> 'a t -> 'a -> string
+  (** [encode_bin t e] encodes [t] into a `bytes` using binary format.
 
-      {b NOTE:} There is a special case when the parameter [t] is a
-     single buffer (of type [cstruct], [bytes] or [string]): the
-     original value is returned as is, without being copied. *)
+     {b NOTE:} There is a special case when the parameter [t] is a
+     single buffer of type [string]: in this case the original value
+     is returned as is, without being copied. *)
 
-  val decode_cstruct: ?exact:bool -> 'a t ->
-    Cstruct.t -> ('a, [`Msg of string]) result
-  (** [decode_cstruct t buf] decodes values of type [t] as produced by
-     [encode_cstruct t v].
+  val decode_bin: ?exact:bool -> 'a t -> string -> ('a, [`Msg of string]) result
+  (** [decode_bin t buf] decodes values of type [t] as produced by
+     [to_bin t v].
 
-      {b NOTE:} When the parameter [t] is a single buffer (of type
-     [cstruct], [bytes] or [string]) the original buffer is returned
-     as is, otherwise sub-[cstruct] are copied. *)
-
-  val encode_bytes: ?buf:bytes -> 'a t -> 'a -> bytes
-  (** Same as {!encode_bytes} but using a string. *)
-
-  val decode_bytes: ?exact:bool -> 'a t -> bytes -> ('a, [`Msg of string]) result
-  (** Same as {!decode_bytes} but using a string. *)
-
-  val encode_string: ?buf:bytes -> 'a t -> 'a -> string
-  (** Same as {!encode_cstruct} but using a string. *)
-
-  val decode_string: ?exact:bool -> 'a t -> string -> ('a, [`Msg of string]) result
-  (** Same as {!decode_cstruct} but using a string. *)
+      {b NOTE:} When the parameter [t] is a single buffer of type
+     [string] the original buffer is returned as is. *)
 
   val size_of: 'a t -> 'a -> int
   (** [size_of t x] is the size needed to serialized [x]. *)
+
+  type 'a ty = 'a t
 
   module type S = sig
 
@@ -434,12 +467,8 @@ module Type: sig
     type t
     (** The type for objects. *)
 
-    val t: t Type.t
+    val t: t ty
     (** [t] is the value type for {!t}. *)
-
-    val pp: t Fmt.t
-
-    val of_string: string -> (t, [`Msg of string]) result
 
   end
 
@@ -501,7 +530,7 @@ module Merge: sig
   val ok: 'a -> ('a, conflict) result Lwt.t
   (** Return [Ok x]. *)
 
-  val conflict: ('a, unit, string, ('b, conflict) result Lwt.t) format4 -> 'a
+  val conflict: ('a, Format.formatter, unit, ('b, conflict) result Lwt.t) format4 -> 'a
   (** Return [Error (Conflict str)]. *)
 
   val bind:
@@ -1036,12 +1065,6 @@ module Path: sig
     val map: t -> (step -> 'a) -> 'a list
     (** [map t f] maps [f] over all steps of [t]. *)
 
-    val pp_step: step Fmt.t
-    (** [pp_step] is pretty-printer for path steps. *)
-
-    val step_of_string: string -> (step, [`Msg of string]) result
-    (** [step_of_string] parses path steps. *)
-
     (** {1 Value Types} *)
 
     val step_t: step Type.t
@@ -1069,7 +1092,7 @@ end
     }
 
     Default contents for idempotent {{!Contents.String}string}
-    and {{!Contents.Cstruct}C-buffers like} values are provided. *)
+    and {{!Contents.Bytes}bytes} values are provided. *)
 module Contents: sig
 
   module type S = sig
@@ -1094,11 +1117,11 @@ module Contents: sig
       function conflicts. Assume that update operations are
       idempotent. *)
 
-  module Cstruct: S with type t = Cstruct.t
-  (** Cstruct values where only the last modified value is kept on
-      merge. If the value has been modified concurrently, the [merge]
-      function conflicts. Assume that update operations are
-      idempotent. *)
+  module Bytes: S with type t = bytes
+  (** Bytes values where only the last modified value is kept on
+     merge. If the value has been modified concurrently, the [merge]
+     function conflicts. Assume that update operations are
+     idempotent. *)
 
   type json = [
     | `Null
@@ -2255,14 +2278,6 @@ module type S = sig
 
     val t: repo -> t Type.t
     (** [t] is the value type for {!t}. *)
-
-    val pp: t Fmt.t
-    (** [pp] is the pretty-printer for commit. Display only the
-        hash. *)
-
-    val of_string: repo -> string -> (t, [`Msg of string]) result
-    (** [of_string r str] parsing the commit from the string [str],
-        using the base repository [r]. *)
 
     val v: repo -> info:Info.t -> parents:commit list -> tree -> commit Lwt.t
     (** [v r i ~parents:p t] is the commit [c] such that:

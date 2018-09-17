@@ -18,58 +18,47 @@ open Lwt.Infix
 
 module Unit = struct
   type t = unit
-
   let t = Type.unit
 
   let merge = Merge.v (Type.option t) (fun ~old:_ x y ->
       match x, y with
       | None, None -> Merge.ok None
       | _          -> Merge.ok (Some ()))
-
-  let pp ppf () = Fmt.string ppf ""
-
-  let of_string = function
-    | "" -> Ok ()
-    | e  -> Error (`Msg e)
 end
 
 module String = struct
   type t = string
   let t = Type.string
-  let merge = Merge.idempotent Type.(option string)
-  let pp = Fmt.string
-  let of_string s = Ok s
+  let merge = Merge.idempotent Type.(option t)
 end
 
-module Cstruct = struct
-  type t = Cstruct.t
-  let t = Type.cstruct
+module Bytes = struct
+  type t = bytes
+  let t = Type.bytes
   let merge = Merge.idempotent Type.(option t)
-  let pp ppf b = Fmt.string ppf (Cstruct.to_string b)
-  let of_string s = Ok (Cstruct.of_string s)
 end
 
 let lexeme e x = ignore (Jsonm.encode e (`Lexeme x))
 
-let rec encode_json e = function
+let rec to_json e = function
   | `Null -> lexeme e `Null
   | `Bool b -> lexeme e (`Bool b)
   | `String s -> lexeme e (`String s)
   | `Float f -> lexeme e (`Float f)
   | `A a ->
       lexeme e `As;
-      List.iter (encode_json e) a;
+      List.iter (to_json e) a;
       lexeme e `Ae;
   | `O o ->
       lexeme e `Os;
       List.iter (fun (k, v) ->
         lexeme e (`Name k);
-        encode_json e v
+        to_json e v
       ) o;
       lexeme e `Oe
 
-let decode_json d =
-  let decode d = match Jsonm.decode d with
+let of_json d =
+  let decode d = match Type.Json.decode d with
     | `Lexeme l -> l
     | `Error e -> failwith (Fmt.strf "%a" Jsonm.pp_error e)
     | _ -> failwith "invalid JSON encoding"
@@ -107,10 +96,13 @@ type json = [
   | `A of json list
 ]
 
+let id x = x
+
 module Json_value = struct
+
   type t = json
 
-  let t =
+  let json =
     let open Type in
     mu (fun ty ->
     variant "json" (fun null bool string float obj arr -> function
@@ -127,6 +119,22 @@ module Json_value = struct
     |~ case1 "object" (list (pair string ty)) (fun obj -> `O obj)
     |~ case1 "array" (list ty) (fun arr -> `A arr)
     |> sealv)
+
+  let pp fmt x =
+    let buffer = Buffer.create 32 in
+    let encoder = Jsonm.encoder (`Buffer buffer) in
+    to_json encoder x;
+    ignore @@ Jsonm.encode encoder `End;
+    let s = Buffer.contents buffer in
+    Fmt.pf fmt "%s" s
+
+  let of_string s =
+    let decoder = Type.Json.decoder (`String s) in
+    match of_json decoder with
+    | Ok obj -> Ok obj
+    | Error _ as err -> err
+
+  let t = Type.like json ~cli:(pp, of_string) ~json:(to_json, of_json) id id
 
   let rec merge_object ~old x y =
     let open Merge.Infix in
@@ -171,41 +179,35 @@ module Json_value = struct
 
   let merge = Merge.(option merge_json)
 
-  let pp fmt x =
-    let buffer = Buffer.create 32 in
-    let encoder = Jsonm.encoder (`Buffer buffer) in
-    encode_json encoder x;
-    ignore @@ Jsonm.encode encoder `End;
-    let s = Buffer.contents buffer in
-    Fmt.pf fmt "%s" s
-
-  let of_string s =
-    let decoder = Jsonm.decoder (`String s) in
-    match decode_json decoder with
-    | Ok obj -> Ok obj
-    | Error _ as err -> err
 end
 
 
 module Json = struct
   type t = (string * json) list
-  let t = Type.(list (pair string Json_value.t))
-  let merge = Merge.(option (alist Type.string Json_value.t (fun _key -> Json_value.merge)))
+
+  let to_json e x = to_json e (`O x)
 
   let pp fmt x =
     let buffer = Buffer.create 32 in
     let encoder = Jsonm.encoder (`Buffer buffer) in
-    encode_json encoder (`O x);
+    to_json encoder x;
     ignore @@ Jsonm.encode encoder `End;
     let s = Buffer.contents buffer in
     Fmt.pf fmt "%s" s
 
-  let of_string s =
-    let decoder = Jsonm.decoder (`String s) in
-    match decode_json decoder with
+  let of_json d = match of_json d with
     | Ok (`O obj) -> Ok obj
     | Ok _ -> Error (`Msg "Irmin JSON values must be objects")
     | Error _ as err -> err
+
+  let of_string s = of_json (Type.Json.decoder (`String s))
+
+  let t =
+    let raw = Type.(list (pair string Json_value.t)) in
+    Type.like raw ~cli:(pp, of_string) ~json:(to_json, of_json) id id
+
+  let merge =
+    Merge.(option (alist Type.string Json_value.t (fun _key -> Json_value.merge)))
 end
 
 module Json_tree(Store: S.STORE with type contents = json) = struct
@@ -216,7 +218,7 @@ module Json_tree(Store: S.STORE with type contents = json) = struct
       match j with
       | [] -> `Tree acc
       | (k, v)::l ->
-        (match Store.Key.step_of_string k with
+        (match Type.of_string Store.Key.step_t k with
         | Ok key -> obj l ((key, node v [])::acc)
         | _ -> obj l acc)
     and node j acc = match j with
@@ -225,7 +227,7 @@ module Json_tree(Store: S.STORE with type contents = json) = struct
     in node j []
 
   let of_concrete_tree c : json =
-    let step = Fmt.to_to_string Store.Key.pp_step in
+    let step = Type.to_string Store.Key.step_t in
     let rec tree t acc =
       match t with
       | [] -> `O acc

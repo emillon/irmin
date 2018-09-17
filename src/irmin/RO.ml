@@ -16,6 +16,9 @@
 
 open Lwt.Infix
 
+let src = Logs.Src.create "irmin" ~doc:"Irmin branch-consistent store"
+module Log = (val Logs.src_log src : Logs.LOG)
+
 module Make (AO: S.RO_MAKER) (K: Type.S) (V: Type.S) = struct
 
   type t = AO.t
@@ -24,15 +27,18 @@ module Make (AO: S.RO_MAKER) (K: Type.S) (V: Type.S) = struct
 
   let v = AO.v
 
-  let key = Type.encode_string K.t
-  let pp =  K.pp
+  let key = Type.encode_bin K.t
+  let pp =  Type.pp K.t
 
-  let mem t k = AO.mem t (key k)
+  let mem t k =
+    Log.debug (fun l -> l "mem %a" pp k);
+    AO.mem t (key k)
 
   let find t k =
+    Log.debug (fun l -> l "find %a" pp k);
     AO.find t (key k) >|= function
     | None   -> None
-    | Some v -> match Type.decode_string V.t v with
+    | Some v -> match Type.decode_bin V.t v with
       | Ok v          -> Some v
       | Error (`Msg e)->
         Fmt.invalid_arg "Cannot read the contents of %a: %s" pp k e
