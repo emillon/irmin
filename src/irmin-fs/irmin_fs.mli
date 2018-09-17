@@ -38,8 +38,8 @@ module type IO = sig
   val file_exists: path -> bool Lwt.t
   (** [file_exist f] is true if [f] exists. *)
 
-  val read_file: path -> Cstruct.t option Lwt.t
-  (** Read the contents of a file using mmap. *)
+  val read_file: path -> string option Lwt.t
+  (** Read the contents of a file. *)
 
   (** {2 Write Operations} *)
 
@@ -53,11 +53,11 @@ module type IO = sig
   (** [lock_file f] is the lock associated to the file [f]. *)
 
   val write_file: ?temp_dir:path -> ?lock:lock ->
-    path -> Cstruct.t -> unit Lwt.t
+    path -> string -> unit Lwt.t
   (** Atomic writes. *)
 
   val test_and_set_file: ?temp_dir:string -> lock:lock ->
-    path ->test:Cstruct.t option -> set:Cstruct.t option -> bool Lwt.t
+    path ->test:string option -> set:string option -> bool Lwt.t
   (** Test and set. *)
 
   val remove_file: ?lock:lock -> path -> unit Lwt.t
@@ -65,9 +65,9 @@ module type IO = sig
 
 end
 
-module AO (IO: IO): Irmin.AO_MAKER
-module Link (IO: IO): Irmin.LINK_MAKER
-module RW (IO: IO): Irmin.RW_MAKER
+module AO (IO: IO): Irmin.AO.MAKER
+module Link (IO: IO): Irmin.Link.MAKER
+module RW (IO: IO): Irmin.RW.MAKER
 module Make (IO: IO): Irmin.S_MAKER
 module KV (IO: IO): Irmin.KV_MAKER
 
@@ -89,9 +89,9 @@ module type Config = sig
 
 end
 
-module AO_ext (IO: IO) (C: Config): Irmin.AO_MAKER
-module Link_ext (IO: IO) (C: Config): Irmin.LINK_MAKER
-module RW_ext (IO: IO) (C: Config): Irmin.RW_MAKER
+module AO_ext (IO: IO) (C: Config): Irmin.AO.MAKER
+module Link_ext (IO: IO) (C: Config): Irmin.Link.MAKER
+module RW_ext (IO: IO) (C: Config): Irmin.RW.MAKER
 module Make_ext (IO: IO) (Obj: Config) (Ref: Config): Irmin.S_MAKER
 
 (** {1 In-memory IO mocks} *)

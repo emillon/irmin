@@ -21,7 +21,7 @@ module IO = Irmin_fs.IO_mem
 let test_db = "test-db"
 
 module Link = struct
-  include Irmin_fs.Link(IO)(Irmin.Hash.SHA1)
+  include Irmin.Link.Make(Irmin_fs.Link(IO))(Irmin.Hash.SHA1)
   let v () = v (Irmin_fs.config test_db)
 end
 

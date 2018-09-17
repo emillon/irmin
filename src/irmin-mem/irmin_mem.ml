@@ -19,7 +19,7 @@ open Lwt.Infix
 let src = Logs.Src.create "irmin.mem" ~doc:"Irmin in-memory store"
 module Log = (val Logs.src_log src : Logs.LOG)
 
-module RO = struct
+module RO () = struct
 
   module KMap = Map.Make(String)
 
@@ -44,7 +44,7 @@ end
 
 module AO = struct
 
-  include RO
+  include RO ()
 
   let add t key value =
     t.t <- KMap.add key value t.t;
@@ -56,31 +56,32 @@ module Link = AO
 
 module RW = struct
 
-  include RO
+  include RO ()
 
   let list t =
-    RO.KMap.fold (fun k _ acc -> k :: acc) t.t []
+    KMap.fold (fun k _ acc -> k :: acc) t.t []
     |> Lwt.return
 
   let set t key value =
-    t.t <- RO.KMap.add key value t.t;
+    t.t <- KMap.add key value t.t;
     Lwt.return ()
 
   let remove t key =
-    t.t <- RO.KMap.remove key t.t;
+    t.t <- KMap.remove key t.t;
     Lwt.return_unit
 
   let test_and_set t key ~test ~set =
     find t key >>= fun v ->
     if Irmin.Type.(equal (option string)) test v then (
       let () = match set with
-        | None   -> t.t <- RO.KMap.remove key t.t
-        | Some v -> t.t <- RO.KMap.add key v t.t
+        | None   -> t.t <- KMap.remove key t.t
+        | Some v -> t.t <- KMap.add key v t.t
       in
       Lwt.return true
     ) else
       Lwt.return false
 
+  let listen_dir _ = None
 end
 
 let config () = Irmin.Private.Conf.empty

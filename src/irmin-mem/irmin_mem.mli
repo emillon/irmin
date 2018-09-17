@@ -24,7 +24,7 @@
 val config: unit -> Irmin.config
 (** Configuration values. *)
 
-module RO: Irmin.RO.MAKER
+module RO (): Irmin.RO.MAKER
 
 module AO: Irmin.AO.MAKER
 (** An in-memory append-only store. *)

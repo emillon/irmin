@@ -16,7 +16,6 @@
  *)
 
 open Lwt.Infix
-open Irmin
 
 let src = Logs.Src.create "irmin.chunk" ~doc:"Irmin chunks"
 module Log = (val Logs.src_log src : Logs.LOG)
@@ -54,15 +53,8 @@ let config ?(config=Irmin.Private.Conf.empty) ?size ?min_size () =
 
 module Chunk (K: Irmin.Hash.S) = struct
 
-  module K = struct
-    type t = K.t
-    let t =
-      Irmin.Type.(like @@ string_of (`Fixed K.digest_size))
-        K.of_raw_string K.to_raw_string
-  end
-
   type v =
-    | Data  of bytes
+    | Data  of string
     | Index of K.t list
 
   let v =
@@ -70,36 +62,33 @@ module Chunk (K: Irmin.Hash.S) = struct
     variant "chunk" (fun d i -> function
         | Data  data  -> d data
         | Index index -> i index)
-    |~ case1 "Data" bytes (fun d -> Data d)
+    |~ case1 "Data" string (fun d -> Data d)
     |~ case1 "Index" (list ~len:`Int16 K.t) (fun i -> Index i)
     |> sealv
 
   type t = { len: int; v: v }
 
-  let of_bytes b =
-    let len = Bytes.length b in
-    match Irmin.Type.decode_bytes ~exact:false v b with
+  let of_string b =
+    let len = String.length b in
+    match Irmin.Type.decode_bin ~exact:false v b with
     | Error (`Msg e) -> invalid_arg e
     | Ok v -> { len; v }
 
-  let to_bytes t =
+  let to_string t =
     let buf = Bytes.make t.len '\000' in
-    Irmin.Type.encode_bytes ~buf v t.v
+    Irmin.Type.encode_bin ~buf v t.v
 
-  let t = Irmin.Type.(like bytes) of_bytes to_bytes
+  let t = Irmin.Type.(like string) of_string to_string
 
-  let of_string s = Irmin.Type.decode_string t s
-  let pp ppf v = Fmt.string ppf (Irmin.Type.encode_string t v)
+  let encode = Irmin.Type.encode_bin t
 
-  let encode = Irmin.Type.encode_string t
-
-  let decode x = match Irmin.Type.decode_string t x with
+  let decode x = match Irmin.Type.decode_bin t x with
     | Ok x    -> Some x
     | Error _ -> None
 
 end
 
-module AO (S:AO_MAKER) (K:Irmin.Hash.S) (V: Irmin.Contents.Conv) = struct
+module AO (S: Irmin.AO.MAKER) (K:Irmin.Hash.S) (V: Irmin.Type.S) = struct
 
   module Chunk = Chunk(K)
 
@@ -117,6 +106,9 @@ module AO (S:AO_MAKER) (K:Irmin.Hash.S) (V: Irmin.Contents.Conv) = struct
   let data t v = { Chunk.v = Data v; len = t.chunk_size }
   let index t i = { Chunk.v = Index i; len = t.chunk_size }
 
+  let of_key = Irmin.Type.encode_bin K.t
+  let pp_key = Irmin.Type.pp K.t
+
   module Tree = struct
 
     (* return all the tree leaves *)
@@ -125,7 +117,7 @@ module AO (S:AO_MAKER) (K:Irmin.Hash.S) (V: Irmin.Contents.Conv) = struct
         | Chunk.Data  d -> Lwt.return (d :: acc)
         | Chunk.Index i ->
           Lwt_list.fold_left_s (fun acc key ->
-              S.find t.db (K.to_raw_string key) >>= function
+              S.find t.db (of_key key) >>= function
               | None   -> Lwt.return acc
               | Some v ->
                 match Chunk.decode v with
@@ -160,8 +152,8 @@ module AO (S:AO_MAKER) (K:Irmin.Hash.S) (V: Irmin.Contents.Conv) = struct
           let l = list_partition n l in
           Lwt_list.map_p (fun i ->
               let value = Chunk.encode (index t i) in
-              let key = K.digest_string value in
-              S.add t.db (K.to_raw_string key) value >|= fun () ->
+              let key = K.digest value in
+              S.add t.db (of_key key) value >|= fun () ->
               key
             ) l >>=
           aux
@@ -186,7 +178,7 @@ module AO (S:AO_MAKER) (K:Irmin.Hash.S) (V: Irmin.Contents.Conv) = struct
     S.v config >|= fun db -> { db; chunk_size; max_children; max_data }
 
   let find_leaves t key =
-    S.find t.db (K.to_raw_string key) >>= function
+    S.find t.db (of_key key) >>= function
     | None    -> Lwt.return []
     | Some x  ->
       match Chunk.decode x with
@@ -195,8 +187,8 @@ module AO (S:AO_MAKER) (K:Irmin.Hash.S) (V: Irmin.Contents.Conv) = struct
 
   let find t key =
     find_leaves t key >|= fun bufs ->
-    let buf = Bytes.concat Bytes.empty bufs in
-    match Irmin.Type.decode_bytes V.t buf with
+    let buf = String.concat "" bufs in
+    match Irmin.Type.decode_bin V.t buf with
     |Ok va   -> Some va
     |Error _ -> None
 
@@ -207,40 +199,41 @@ module AO (S:AO_MAKER) (K:Irmin.Hash.S) (V: Irmin.Contents.Conv) = struct
     in
     aux [] init
 
-  let add t v =
-    let buf = Irmin.Type.encode_bytes V.t v in
-    let len = Bytes.length buf in
+  let add_aux f t v =
+    let buf = Irmin.Type.encode_bin V.t v in
+    let len = String.length buf in
     if len <= t.max_data then (
       let value = Chunk.encode (data t buf) in
-      let key = K.digest_string value in
-      S.add t.db (K.to_raw_string key) value >|= fun () ->
-      Log.debug (fun l -> l "add -> %a (no split)" K.pp key);
-      key
+      let key = K.digest value in
+      S.add t.db (of_key key) value >|= fun () ->
+      Log.debug (fun l -> l "add -> %a (no split)" pp_key key);
+      f key buf
     ) else (
       let offs = list_range ~init:0 ~stop:len ~step:t.max_data in
       let aux off =
-        let len = min t.max_data (Bytes.length buf - off) in
-        let payload = Bytes.sub buf off len in
+        let len = min t.max_data (String.length buf - off) in
+        let payload = String.sub buf off len in
         let value = Chunk.encode (data t payload) in
-        let key = K.digest_string value in
-        S.add t.db (K.to_raw_string key) value >|= fun () ->
+        let key = K.digest value in
+        S.add t.db (of_key key) value >|= fun () ->
         key
       in
       Lwt_list.map_s aux offs >>= Tree.add t >|= fun k ->
-      Log.debug (fun l -> l "add -> %a (split)" K.pp k);
-      k
+      Log.debug (fun l -> l "add -> %a (split)" pp_key k);
+      f k buf
     )
 
-  let mem t key = S.mem t.db (K.to_raw_string key)
+  let add = add_aux (fun k _ -> k)
+  let mem t key = S.mem t.db (of_key key)
 
 end
 
 module AO_stable
-    (L: LINK_MAKER) (S: AO_MAKER) (K: Hash.S) (V: Irmin.Contents.Conv)
+    (L: Irmin.Link.MAKER) (S: Irmin.AO.MAKER) (K: Irmin.Hash.S) (V: Irmin.Type.S)
 = struct
 
   module AO = AO(S)(K)(V)
-  module Link = L(K)
+  module Link = Irmin.Link.Make(L)(K)
 
   type key = K.t
   type value = V.t
@@ -262,8 +255,8 @@ module AO_stable
     | Some k -> AO.mem t.ao k
 
   let add t v =
-    AO.add t.ao v >>= fun k' ->
-    let k = K.digest V.t v in
+    AO.add_aux (fun k buf -> buf, k) t.ao v >>= fun (buf, k') ->
+    let k = K.digest buf in
     Link.add t.link k k' >>= fun () ->
     Lwt.return k
 

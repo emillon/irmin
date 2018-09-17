@@ -16,7 +16,7 @@
 
 open Lwt.Infix
 
-let src = Logs.Src.create "irmin" ~doc:"Irmin branch-consistent store"
+let src = Logs.Src.create "irmin.rw" ~doc:"Irmin branch-consistent store"
 module Log = (val Logs.src_log src : Logs.LOG)
 
 module Make (RW: S.RW_MAKER) (K: Type.S) (V: S.HASH) = struct
@@ -26,7 +26,7 @@ module Make (RW: S.RW_MAKER) (K: Type.S) (V: S.HASH) = struct
 
   type t = RW.t
 
-  type watch = W.watch
+  type watch = W.watch * (unit -> unit Lwt.t)
   type key = K.t
   type value = V.t
 
@@ -77,7 +77,30 @@ module Make (RW: S.RW_MAKER) (K: Type.S) (V: S.HASH) = struct
     (if updated then W.notify watches k set else Lwt.return_unit) >|= fun () ->
      updated
 
-  let watch _ = W.watch watches
-  let watch_key _ = W.watch_key watches
-  let unwatch _ = W.unwatch watches
+  let listen_dir t =
+    match RW.listen_dir t with
+    | None    -> Lwt.return (fun () -> Lwt.return ())
+    | Some dir ->
+      let key file = match Type.decode_bin K.t file with
+        | Ok t           -> Some t
+        | Error (`Msg e) ->
+          Log.err (fun l -> l "listen_dir: %s" e);
+          None
+      in
+      W.listen_dir watches dir ~key ~value:(find t)
+
+  let watch t ?init f =
+    listen_dir t >>= fun stop ->
+    W.watch watches ?init f >|= fun w ->
+    (w, stop)
+
+  let watch_key t key ?init f =
+    listen_dir t >>= fun stop ->
+    W.watch_key watches key ?init f >|= fun w ->
+    (w, stop)
+
+  let unwatch _t (id, stop) =
+    stop () >>= fun () ->
+    W.unwatch watches id
+
 end

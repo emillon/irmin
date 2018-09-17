@@ -935,10 +935,10 @@ module Link: sig
      random-access file operations or for encryption. *)
   module type MAKER = S with type key = string and type value = string
 
-  module Make (S: MAKER) (K: Type.S) (V: Type.S):
+  module Make (S: MAKER) (K: Type.S):
     S with type t = S.t
        and type key = K.t
-       and type value = V.t
+       and type value = K.t
 
 end
 
@@ -1013,6 +1013,8 @@ module RW: sig
     val remove: t -> key -> unit Lwt.t
 
     val list: t -> key list Lwt.t
+
+    val listen_dir: t -> string option
 
   end
 

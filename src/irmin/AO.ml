@@ -16,7 +16,7 @@
 
 open Lwt.Infix
 
-let src = Logs.Src.create "irmin" ~doc:"Irmin branch-consistent store"
+let src = Logs.Src.create "irmin.ao" ~doc:"Irmin branch-consistent store"
 module Log = (val Logs.src_log src : Logs.LOG)
 
 module Make (AO: S.AO_MAKER) (K: S.HASH) (V: Type.S) = struct

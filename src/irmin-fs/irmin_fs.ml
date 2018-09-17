@@ -32,14 +32,14 @@ module type IO = sig
   type path = string
   val rec_files: path -> string list Lwt.t
   val file_exists: path -> bool Lwt.t
-  val read_file: path -> Cstruct.t option Lwt.t
+  val read_file: path -> string option Lwt.t
   val mkdir: path -> unit Lwt.t
   type lock
   val lock_file: string -> lock
   val write_file: ?temp_dir:path -> ?lock:lock ->
-    path -> Cstruct.t -> unit Lwt.t
+    path -> string -> unit Lwt.t
   val test_and_set_file: ?temp_dir:path -> lock:lock ->
-    string -> test:Cstruct.t option -> set:Cstruct.t option -> bool Lwt.t
+    string -> test:string option -> set:string option -> bool Lwt.t
   val remove_file: ?lock:lock -> path -> unit Lwt.t
 end
 
@@ -49,17 +49,11 @@ let root_key = Irmin.Private.Conf.root
 let config ?(config=Irmin.Private.Conf.empty) root =
   Irmin.Private.Conf.add config root_key (Some root)
 
-module RO_ext (IO: IO) (S: Config)
-    (K: Irmin.Contents.Conv) (V: Irmin.Contents.Conv) =
-struct
+module RO_ext (IO: IO) (S: Config) = struct
 
-  type key = K.t
-
-  type value = V.t
-
-  type t = {
-    path: string;
-  }
+  type key = string
+  type value = string
+  type t = { path: string }
 
   let get_path config = match Irmin.Private.Conf.get config root_key with
     | Some r -> r
@@ -70,31 +64,19 @@ struct
     IO.mkdir path >|= fun () ->
     { path }
 
-  let file_of_key { path; _ } key =
-    path / S.file_of_key (Fmt.to_to_string K.pp key)
+  let file_of_key { path; _ } key = path / S.file_of_key key
 
   let lock_of_key { path; _ } key =
-    IO.lock_file (path / "lock" / S.file_of_key (Fmt.to_to_string K.pp key))
+    IO.lock_file (path / "lock" / S.file_of_key key)
 
   let mem t key =
     let file = file_of_key t key in
     IO.file_exists file
 
-  let value v =
-    match Irmin.Type.decode_cstruct V.t v with
-    | Ok v           -> Some v
-    | Error (`Msg e) ->
-      Log.err (fun l -> l "Irmin_fs.value %s" e);
-      None
-
   let find t key =
-    Log.debug (fun f -> f "read");
-    IO.read_file (file_of_key t key) >|= function
-    | None   -> None
-    | Some x -> value x
+    IO.read_file (file_of_key t key)
 
   let list t =
-    Log.debug (fun f -> f "list");
     IO.rec_files (S.dir t.path) >|= fun files ->
     let files =
       let p = String.length t.path in
@@ -105,146 +87,73 @@ struct
             file :: acc
         ) [] files
     in
-    List.fold_left (fun acc file -> match K.of_string (S.key_of_file file) with
-        | Ok k           -> k :: acc
-        | Error (`Msg e) ->
-          Log.err (fun l -> l "Irmin_fs.list: %s" e);
-          acc
-      ) [] files
+    List.fold_left (fun acc file -> S.key_of_file file :: acc) [] files
 
 end
 
-module AO_ext (IO: IO) (S: Config)
-    (K: Irmin.Hash.S) (V: Irmin.Contents.Conv) =
-struct
+module AO_ext (IO: IO) (S: Config) = struct
 
-  include RO_ext(IO)(S)(K)(V)
+  include RO_ext(IO)(S)
 
   let temp_dir t = t.path / "tmp"
 
-  let add t value =
-    Log.debug (fun f -> f "add");
-    let value = Irmin.Type.encode_cstruct V.t value in
-    let key = K.digest Irmin.Type.cstruct value in
+  let add t key value =
     let file = file_of_key t key in
     let temp_dir = temp_dir t in
-    (IO.file_exists file >>= function
-      | true  -> Lwt.return_unit
-      | false ->
-        Lwt.catch
-          (fun () -> IO.write_file ~temp_dir file value)
-          (fun e -> Lwt.fail e))
-    >|= fun () ->
-    key
+    IO.file_exists file >>= function
+    | true  -> Lwt.return_unit
+    | false ->
+      Lwt.catch
+        (fun () -> IO.write_file ~temp_dir file value)
+        (fun e -> Lwt.fail e)
 
 end
 
-module Link_ext (IO: IO) (S: Config) (K:Irmin.Hash.S) = struct
+module Link_ext (IO: IO) (S: Config) = struct
 
- include RO_ext(IO)(S)(K)(K)
+ include RO_ext(IO)(S)
 
  let temp_dir t = t.path / "tmp"
 
  let add t index key =
    Log.debug (fun f -> f "add link");
    let file = file_of_key t index in
-   let value = Irmin.Type.encode_cstruct K.t key in
    let temp_dir = temp_dir t in
    IO.file_exists file >>= function
    | true  -> Lwt.return_unit
    | false ->
      Lwt.catch
-       (fun () -> IO.write_file ~temp_dir file value)
+       (fun () -> IO.write_file ~temp_dir file key)
        (fun e -> Lwt.fail e)
 
 end
 
-module RW_ext (IO: IO) (S: Config)
-    (K: Irmin.Contents.Conv) (V: Irmin.Contents.Conv) =
-struct
+module RW_ext (IO: IO) (S: Config) = struct
 
-  module RO = RO_ext(IO)(S)(K)(V)
-  module W = Irmin.Private.Watch.Make(K)(V)
+  include RO_ext(IO)(S)
 
-  type t = { t: RO.t; w: W.t }
-  type key = RO.key
-  type value = RO.value
-  type watch = W.watch * (unit -> unit Lwt.t)
-
-  let temp_dir t = t.t.RO.path / "tmp"
-
-  (* FIXME: do we really want a global state here?
-     maybe we should use a weak map? *)
-  let watches = Hashtbl.create 10
-
-  let v config =
-    RO.v config >|= fun t ->
-    let w =
-      let path = RO.get_path config in
-      try Hashtbl.find watches path
-      with Not_found ->
-        let w = W.v () in
-        Hashtbl.add watches path w;
-        w
-    in
-    { t; w }
-
-  let find t = RO.find t.t
-  let mem t = RO.mem t.t
-  let list t = RO.list t.t
-
-  let listen_dir t =
-    let dir = S.dir t.t.RO.path in
-    let key file = match K.of_string file with
-      | Ok t           -> Some t
-      | Error (`Msg e) ->
-        Log.err (fun l -> l "listen_dir: %s" e);
-        None
-    in
-    W.listen_dir t.w dir ~key ~value:(RO.find t.t)
-
-  let watch_key t key ?init f =
-    listen_dir t >>= fun stop ->
-    W.watch_key t.w key ?init f >|= fun w ->
-    (w, stop)
-
-  let watch t ?init f =
-    listen_dir t >>= fun stop ->
-    W.watch t.w ?init f >|= fun w ->
-    (w, stop)
-
-  let unwatch t (id, stop) =
-    stop () >>= fun () ->
-    W.unwatch t.w id
-
-  let raw_value v = Irmin.Type.encode_cstruct V.t v
+  let temp_dir t = t.path / "tmp"
 
   let set t key value =
-    Log.debug (fun f -> f "update");
     let temp_dir = temp_dir t in
-    let file = RO.file_of_key t.t key in
-    let lock = RO.lock_of_key t.t key in
-    IO.write_file ~temp_dir file ~lock (raw_value value) >>= fun () ->
-    W.notify t.w key (Some value)
+    let file = file_of_key t key in
+    let lock = lock_of_key t key in
+    IO.write_file ~temp_dir file ~lock value
 
   let remove t key =
-    Log.debug (fun f -> f "remove");
-    let file = RO.file_of_key t.t key in
-    let lock = RO.lock_of_key t.t key in
-    IO.remove_file ~lock file >>= fun () ->
-    W.notify t.w key None
+    let file = file_of_key t key in
+    let lock = lock_of_key t key in
+    IO.remove_file ~lock file
 
   let test_and_set t key ~test ~set =
-    Log.debug (fun f -> f "test_and_set");
     let temp_dir = temp_dir t in
-    let file = RO.file_of_key t.t key in
-    let lock = RO.lock_of_key t.t key in
-    let raw_value = function None -> None | Some v -> Some (raw_value v) in
+    let file = file_of_key t key in
+    let lock = lock_of_key t key in
+    let raw_value = function None -> None | Some v -> Some v in
     IO.test_and_set_file file ~temp_dir ~lock
       ~test:(raw_value test) ~set:(raw_value set)
-    >>= fun b ->
-    (if b then W.notify t.w key set else Lwt.return_unit) >|= fun () ->
-    b
+
+  let listen_dir t = Some (S.dir t.path)
 
 end
 
@@ -337,7 +246,7 @@ module IO_mem = struct
 
   type t = {
     watches: (string, string -> unit Lwt.t) Hashtbl.t;
-    files  : (string, Cstruct.t) Hashtbl.t;
+    files  : (string, string) Hashtbl.t;
   }
 
   let t = {
@@ -404,7 +313,7 @@ module IO_mem = struct
 
   let equal x y = match x, y with
     | None  , None   -> true
-    | Some x, Some y -> Cstruct.equal x y
+    | Some x, Some y -> String.equal x y
     | _ -> false
 
   let test_and_set_file ?temp_dir:_ ~lock file ~test ~set =

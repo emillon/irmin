@@ -62,9 +62,9 @@ end
 module Link = struct
   module type S = S.LINK
   module type MAKER = S.LINK_MAKER
-  module Make (S: MAKER) (K: Type.S) (V: Type.S) = struct
-    include RO.Make(S)(K)(V)
-    let add t k v = S.add t (Type.encode_bin K.t k) (Type.encode_bin V.t v)
+  module Make (S: MAKER) (K: Type.S) = struct
+    include RO.Make(S)(K)(K)
+    let add t k v = S.add t (Type.encode_bin K.t k) (Type.encode_bin K.t v)
   end
 end
 

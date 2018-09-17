@@ -228,6 +228,7 @@ module type RW_MAKER = sig
     t -> key -> test:value option -> set:value option -> bool Lwt.t
   val remove: t -> key -> unit Lwt.t
   val list: t -> key list Lwt.t
+  val listen_dir: t -> string option
 end
 
 module type BRANCH_STORE = sig
