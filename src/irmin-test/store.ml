@@ -776,6 +776,7 @@ module Make (S: S) = struct
 
   let test_history x () =
     let test repo =
+      let pp_commit = Irmin.Type.pp (S.Commit.t repo) in
       let info date =
         let i = Int64.of_int date in
         Irmin.Info.v ~date:i ~author:"test" "Test commit"
@@ -787,7 +788,7 @@ module Make (S: S) = struct
           | `Max_depth_reached -> "Max_depth_reached"
         in
         let l2 = match l2 with
-          | Ok x    -> Alcotest.failf "%s: %a" msg Fmt.Dump.(list S.Commit.pp) x
+          | Ok x    -> Alcotest.failf "%s: %a" msg Fmt.Dump.(list pp_commit) x
           | Error e -> err_str e
         in
         Alcotest.(check string) msg (err_str err) l2

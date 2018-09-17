@@ -29,29 +29,24 @@ module RO = struct
   let map = { t = KMap.empty }
   let v _config = Lwt.return map
 
-  let find pp { t; _ } key =
-    Log.debug (fun f -> f "find %a" pp key);
-    try Lwt.return (Some (KMap.find key t))
-    with Not_found -> Lwt.return_none
+  let find { t; _ } key =
+    let v =
+      try Some (KMap.find key t)
+      with Not_found -> None
+    in
+    Lwt.return v
 
-  let mem pp { t; _ } key =
-    Log.debug (fun f -> f "mem %a" pp key);
-    Lwt.return (KMap.mem key t)
+  let mem { t; _ } key =
+    KMap.mem key t
+    |> Lwt.return
 
 end
-
-
-let pp_hex ppf x = let `Hex h = Hex.of_string x in Fmt.string ppf h
 
 module AO = struct
 
   include RO
 
-  let find = find pp_hex
-  let mem = mem pp_hex
-
   let add t key value =
-    Log.debug (fun f -> f "add %a" pp_hex key);
     t.t <- KMap.add key value t.t;
     Lwt.return ()
 
@@ -62,10 +57,6 @@ module Link = AO
 module RW = struct
 
   include RO
-
-  let pp = Fmt.string
-  let find = find pp
-  let mem = mem pp
 
   let list t =
     RO.KMap.fold (fun k _ acc -> k :: acc) t.t []

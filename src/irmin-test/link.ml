@@ -20,11 +20,11 @@ open Common
 module Hash = Irmin.Hash.SHA1
 
 module type S = sig
-  include Irmin.LINK with type key = Hash.t and type value = Hash.t
+  include Irmin.Link.S with type key = Hash.t and type value = Hash.t
   val v: unit -> t Lwt.t
 end
 
-let key x = Hash.digest Irmin.Type.string x
+let key x = Hash.digest x
 let key_t = testable Hash.t
 
 let test (module M: S) () =

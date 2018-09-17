@@ -24,13 +24,15 @@
 val config: unit -> Irmin.config
 (** Configuration values. *)
 
-module AO: Irmin.AO_MAKER
+module RO: Irmin.RO.MAKER
+
+module AO: Irmin.AO.MAKER
 (** An in-memory append-only store. *)
 
-module Link: Irmin.LINK_MAKER
+module Link: Irmin.Link.MAKER
 (** Immutable links. *)
 
-module RW: Irmin.RW_MAKER
+module RW: Irmin.RW.MAKER
 (** An in-memory read-write store. *)
 
 module Make: Irmin.S_MAKER
