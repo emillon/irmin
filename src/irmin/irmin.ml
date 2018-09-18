@@ -69,8 +69,14 @@ module Link = struct
 end
 
 module Make
-    (AOM: S.AO_MAKER)
-    (RWM: S.RW_MAKER)
+    (AOM: sig
+       include S.AO_MAKER
+       val v: Conf.t -> t Lwt.t
+     end)
+    (RWM: sig
+       include S.RW_MAKER
+       val v: Conf.t -> t Lwt.t
+     end)
     (M: S.METADATA)
     (C: S.CONTENTS)
     (P: S.PATH)

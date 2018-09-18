@@ -25,8 +25,6 @@ module Make (AO: S.RO_MAKER) (K: Type.S) (V: Type.S) = struct
   type key = K.t
   type value = V.t
 
-  let v = AO.v
-
   let key = Type.encode_bin K.t
   let pp =  Type.pp K.t
 

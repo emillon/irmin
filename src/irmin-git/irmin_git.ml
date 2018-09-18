@@ -28,7 +28,7 @@ module Metadata = struct
   end
   include X
   let default = `Normal
-  let merge = Irmin.Merge.default X.t
+  let merge = Irmin.Merge.idempotent (Irmin.Type.option X.t)
 end
 
 let src = Logs.Src.create "irmin.git" ~doc:"Irmin Git-format store"
@@ -90,9 +90,10 @@ module Make_private
 
   module H = Irmin.Hash.Make(G.Hash)
 
+  let pp_key = Irmin.Type.pp H.t
+
   module type V = sig
     type t
-    (* FIXME: use G.Value.kind *)
     val pp: t Fmt.t
     val type_eq: [`Commit | `Blob | `Tree | `Tag] -> bool
     val to_git: t -> G.Value.t
@@ -106,7 +107,7 @@ module Make_private
     type value = V.t
 
     let mem t key =
-      Log.debug (fun l -> l "mem %a" H.pp key);
+      Log.debug (fun l -> l "mem %a" pp_key key);
       G.mem t key >>= function
       | false    -> Lwt.return false
       | true     ->
@@ -116,7 +117,7 @@ module Make_private
         | Ok v             -> Lwt.return (V.type_eq (G.Value.kind v))
 
     let find t key =
-      Log.debug (fun l -> l "find %a" H.pp key);
+      Log.debug (fun l -> l "find %a" pp_key key);
       G.read t key >>= function
       | Error `Not_found -> Lwt.return None
       | Error e          -> Fmt.kstrf Lwt.fail_with "%a" G.pp_error e
@@ -132,11 +133,11 @@ module Make_private
 
   module GitContents = struct
     type t = C.t
-    let pp = C.pp
-    let to_string = Fmt.to_to_string C.pp
+    let pp = Irmin.Type.pp C.t
+    let to_string = Irmin.Type.to_string C.t
     let type_eq = function `Blob -> true | _ -> false
 
-    let of_string str = match C.of_string str with
+    let of_string str = match Irmin.Type.of_string C.t str with
       | Ok x           -> Some x
       | Error (`Msg e) ->
         Log.err (fun l -> l "Git.Contents: cannot parse %S: %s" str e);
@@ -184,9 +185,9 @@ module Make_private
         |~ case1 "contents" contents_t (fun c -> `Contents c)
         |> sealv
 
-      let of_step = Fmt.to_to_string P.pp_step
+      let of_step = Irmin.Type.to_string P.step_t
 
-      let to_step str = match P.step_of_string str with
+      let to_step str = match Irmin.Type.of_string P.step_t str with
         | Ok x           -> x
         | Error (`Msg e) -> failwith e
 

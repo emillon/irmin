@@ -31,12 +31,12 @@ val head: Git.Reference.t option Irmin.Private.Conf.key
 val level: int option Irmin.Private.Conf.key
 val dot_git: string option Irmin.Private.Conf.key
 
-module AO (G: Git.S) (V: Irmin.Contents.Conv) : Irmin.AO
+module AO (G: Git.S) (V: Irmin.Type.S) : Irmin.AO.S
   with type t = G.t
    and type key = G.Hash.t
    and type value = V.t
 
-module RW (G: Git.S) (K: Irmin.Branch.S): Irmin.RW
+module RW (G: Git.S) (K: Irmin.Branch.S): Irmin.RW.S
   with type key = K.t
    and type value = G.Hash.t
 

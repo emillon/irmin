@@ -64,11 +64,6 @@ module Store
   type key = S.key
   type value = S.value
 
-  let v config =
-    N.v config >>= fun n ->
-    S.v config >|= fun s ->
-    n, s
-
   let add (_, t) = S.add t
   let mem (_, t) = S.mem t
   let find (_, t) = S.find t

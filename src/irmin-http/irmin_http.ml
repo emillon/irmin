@@ -20,12 +20,14 @@ open Lwt.Infix
 
 module type S = sig
   include Irmin.S
-  val connect: Uri.t -> Repo.t
+  type ctx
+  val connect: ?ctx:ctx -> Uri.t -> Repo.t Lwt.t
 end
 
 module type KV = sig
   include Irmin.KV
-  val connect: Uri.t -> Repo.t
+  type ctx
+  val connect: ?ctx:ctx -> Uri.t -> Repo.t Lwt.t
 end
 
 let src = Logs.Src.create "irmin.http" ~doc:"Irmin HTTP REST interface"
@@ -193,9 +195,12 @@ module Helper (Client: Cohttp_lwt.S.Client) = struct
 
 end
 
+
+
+
 module RO (Client: Cohttp_lwt.S.Client)
-    (K: Irmin.Contents.Conv)
-    (V: Irmin.Contents.Conv)
+    (K: Irmin.Type.S)
+    (V: Irmin.Type.S)
 = struct
 
   module HTTP = Helper (Client)
@@ -208,12 +213,13 @@ module RO (Client: Cohttp_lwt.S.Client)
   type key = K.t
   type value = V.t
 
-  let key_str = Fmt.to_to_string K.pp
+  let key_str = Irmin.Type.to_string K.t
+  let val_str = Irmin.Type.of_string V.t
 
   let find t key =
     HTTP.map_call `GET t.uri t.ctx [t.item; key_str key] (fun (r, _ as x) ->
         if Cohttp.Response.status r = `Not_found then Lwt.return_none
-        else HTTP.map_string_response V.of_string x >|= fun x -> Some x)
+        else HTTP.map_string_response val_str x >|= fun x -> Some x)
 
   let mem t key =
     HTTP.map_call `GET t.uri t.ctx [t.item; key_str key] (fun (r, _ ) ->
@@ -227,17 +233,19 @@ end
 
 module AO (Client: Cohttp_lwt.S.Client)
     (K: Irmin.Hash.S)
-    (V: Irmin.Contents.Conv) =
+    (V: Irmin.Type.S) =
 struct
   include RO (Client)(K)(V)
+
   let add t value =
-    let body = Fmt.to_to_string V.pp value in
-    HTTP.call `POST t.uri t.ctx [t.items] ~body K.of_string
+    let body = Irmin.Type.to_string V.t value in
+    HTTP.call `POST t.uri t.ctx [t.items] ~body (Irmin.Type.of_string K.t)
+
 end
 
 module RW (Client: Cohttp_lwt.S.Client)
-    (K: Irmin.Contents.Conv)
-    (V: Irmin.Contents.Conv)
+    (K: Irmin.Type.S)
+    (V: Irmin.Type.S)
 = struct
 
   module RO = RO (Client)(K)(V)
@@ -270,7 +278,7 @@ module RW (Client: Cohttp_lwt.S.Client)
 
   let find t = RO.find t.t
   let mem t = RO.mem t.t
-  let key_str = Fmt.to_to_string K.pp
+  let key_str = Irmin.Type.to_string K.t
   let list t = get t [RO.items t.t] (of_json_string T.(list K.t))
 
   let set t key value =
@@ -297,7 +305,8 @@ module RW (Client: Cohttp_lwt.S.Client)
          | `Not_found | `OK -> Lwt.return_unit
          | _ ->
            Cohttp_lwt.Body.to_string b >>= fun b ->
-           Fmt.kstrf Lwt.fail_with "cannot remove %a: %s" K.pp key b
+           Fmt.kstrf Lwt.fail_with "cannot remove %a: %s"
+             (Irmin.Type.pp K.t) key b
       )
 
   let nb_keys t = fst (W.stats t.w)
@@ -310,7 +319,7 @@ module RW (Client: Cohttp_lwt.S.Client)
     function () -> Lwt.wakeup u ()
 
   let watch_key t key ?init f =
-    let key_str = Fmt.to_to_string K.pp key in
+    let key_str = Irmin.Type.to_string K.t key in
     let init_stream () =
       if nb_keys t <> 0 then Lwt.return_unit
       else
@@ -385,22 +394,21 @@ module Make
     (B: Irmin.Branch.S)
     (H: Irmin.Hash.S) =
 struct
+  type ctx = Client.ctx
   module X = struct
-    module XContents = struct
-      module Key = H
-      module Val = C
-      include AO(Client)(H)(C)
-      let v ?ctx config = v ?ctx config "blob" "blobs"
+    module Contents = struct
+      module X = struct
+        module Key = H
+        module Val = C
+        include AO(Client)(H)(C)
+      end
+      include Irmin.Contents.Store(X)
+      let v ?ctx config = X.v ?ctx config "blob" "blobs"
     end
-    module Contents = Irmin.Contents.Store(XContents)
     module Node = struct
       module X = struct
         module Key = H
-        module Val = struct
-          include Irmin.Private.Node.Make(H)(H)(P)(M)
-          let pp = T.pp_json t
-          let of_string = of_json_string t
-        end
+        module Val = Irmin.Private.Node.Make(H)(H)(P)(M)
         include AO(Client)(Key)(Val)
       end
       include Irmin.Private.Node.Store(Contents)(P)(M)(X)
@@ -409,11 +417,7 @@ struct
     module Commit = struct
       module X = struct
         module Key = H
-        module Val = struct
-          include Irmin.Private.Commit.Make(H)(H)
-          let pp = T.pp_json t
-          let of_string = of_json_string t
-        end
+        module Val = Irmin.Private.Commit.Make(H)(H)
         include AO(Client)(Key)(Val)
       end
       include Irmin.Private.Commit.Store(Node)(X)
@@ -443,7 +447,7 @@ struct
       let v config =
         let uri = get_uri config in
         let ctx = Client.ctx () in
-        XContents.v ?ctx uri >>= fun contents ->
+        Contents.v ?ctx uri >>= fun contents ->
         Node.v ?ctx uri      >>= fun node ->
         Commit.v ?ctx uri    >>= fun commit ->
         Branch.v ?ctx uri    >|= fun branch ->
@@ -455,13 +459,14 @@ struct
   include Irmin.Make_ext(X)
 
   let connect ?ctx uri =
-    Private.Contents.v ?ctx uri >>= fun contents ->
-    Node.v ?ctx uri      >>= fun node ->
-    Commit.v ?ctx uri    >>= fun commit ->
-    Branch.v ?ctx uri    >|= fun branch ->
+    X.Contents.v ?ctx uri >>= fun contents ->
+    X.Node.v ?ctx uri     >>= fun node ->
+    X.Commit.v ?ctx uri   >>= fun commit ->
+    X.Branch.v ?ctx uri   >|= fun branch ->
     let node = contents, node in
     let commit = node, commit in
-    { contents; node; commit; branch; config }
+    let config = config uri in
+    { X.Repo.contents; node; commit; branch; config }
 
 end
 

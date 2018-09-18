@@ -32,7 +32,6 @@ module Make (RW: S.RW_MAKER) (K: Type.S) (V: S.HASH) = struct
 
   let watches = W.v ()
   let lock = L.v ()
-  let v = RW.v
 
   let pp_key = Type.pp K.t
 

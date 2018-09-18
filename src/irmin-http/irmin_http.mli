@@ -27,10 +27,11 @@ end
 
 module type S = sig
   include Irmin.S
-  val connect: Uri.t -> Repo.t
+  type ctx
+  val connect: ?ctx:ctx -> Uri.t -> Repo.t Lwt.t
 end
 
-module Make (C: CLIENT)
+module Make (Client: CLIENT)
     (M: Irmin.Metadata.S)
     (C: Irmin.Contents.S)
     (P:Irmin.Path.S)
@@ -44,10 +45,14 @@ module Make (C: CLIENT)
      and type Commit.Hash.t = H.t
      and type Tree.Hash.t = H.t
      and type Contents.Hash.t = H.t
+     and type ctx = Client.ctx
 
 module type KV = sig
   include Irmin.KV
-  val connect: Uri.t -> Repo.t
+  type ctx
+  val connect: ?ctx:ctx -> Uri.t -> Repo.t Lwt.t
 end
 
-module KV (C: CLIENT) (C: Irmin.Contents.S): KV with type contents = C.t
+module KV (Client: CLIENT) (C: Irmin.Contents.S):
+  KV with type contents = C.t
+      and type ctx = Client.ctx

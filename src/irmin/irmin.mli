@@ -838,10 +838,6 @@ module RO: sig
     type t
     (** The type for read-only backend stores. *)
 
-    val v: config -> t Lwt.t
-    (** [v config] is a function returning fresh store handles, with the
-        configuration [config], which is provided by the backend. *)
-
     type key
     (** The type for keys. *)
 
@@ -3190,7 +3186,15 @@ end
 *)
 
 
-module Make (AO: AO.MAKER) (RW: RW.MAKER): S_MAKER
+module Make
+    (AO: sig
+       include AO.MAKER
+       val v: Conf.t -> t Lwt.t
+     end)
+    (RW: sig
+       include RW.MAKER
+       val v: Conf.t -> t Lwt.t
+     end): S_MAKER
 (** Simple store creator. Use the same type of all of the internal
     keys and store all the values in the same store. *)
 

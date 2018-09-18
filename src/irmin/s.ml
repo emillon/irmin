@@ -46,7 +46,6 @@ module type RO = sig
   type t
   type key
   type value
-  val v: Conf.t -> t Lwt.t
   val mem: t -> key -> bool Lwt.t
   val find: t -> key -> value option Lwt.t
 end
