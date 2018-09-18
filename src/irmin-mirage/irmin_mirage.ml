@@ -51,7 +51,7 @@ module KV_RO (G: Git.S) = struct
 
   open Lwt.Infix
 
-  module S = X.KV(NoConduit)(G)(Irmin.Contents.Cstruct)
+  module S = X.KV(NoConduit)(G)(Irmin.Contents.String)
 
   module Sync = Irmin.Sync(S)
 
@@ -75,7 +75,7 @@ module KV_RO (G: Git.S) = struct
          Date: %Ld\n\
          \n\
          %s\n"
-        S.Commit.pp h
+        (Irmin.Type.pp S.Commit.Hash.t) (S.Commit.hash h)
         (Irmin.Info.author info)
         (Irmin.Info.date info)
         (Irmin.Info.message info)
@@ -90,7 +90,10 @@ module KV_RO (G: Git.S) = struct
   let read_store t path off len =
     S.find t.t (mk_path t path) >>= function
     | None   -> unknown_key path
-    | Some v -> ok [Cstruct.sub v off len]
+    | Some v ->
+      (* XXX(samoht): very ineficient *)
+      let buf = String.with_range v ~first:off ~len in
+      ok [Cstruct.of_string buf]
 
   let read t path off len =
     let off = Int64.to_int off
@@ -109,7 +112,7 @@ module KV_RO (G: Git.S) = struct
   let size_store t path =
     S.find t.t (mk_path t path) >>= function
     | None   -> unknown_key path
-    | Some v -> ok (Int64.of_int @@ Cstruct.len v)
+    | Some v -> ok (Int64.of_int @@ String.length v)
 
   let size t = function
     | "HEAD" -> size_head t

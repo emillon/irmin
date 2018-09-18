@@ -48,13 +48,13 @@ module FS: sig
 
   (** {1 File-system Store} *)
 
-  module AO: Irmin.AO_MAKER
+  module AO: Irmin.AO.MAKER
   (** Append-only store maker. *)
 
-  module Link: Irmin.LINK_MAKER
+  module Link: Irmin.Link.MAKER
   (** Immutable store for links. *)
 
-  module RW: Irmin.RW_MAKER
+  module RW: Irmin.RW.MAKER
   (** Read-write store maker. *)
 
   module Make: Irmin.S_MAKER
@@ -64,10 +64,10 @@ module FS: sig
   (** Irmin store make, where only the Contents have to be specified:
       branches are strings and paths are string lists. *)
 
-  module AO_ext (C: Irmin_fs.Config): Irmin.AO_MAKER
+  module AO_ext (C: Irmin_fs.Config): Irmin.AO.MAKER
   (** Append-only store maker, with control over the filenames shapes. *)
 
-  module RW_ext (C: Irmin_fs.Config): Irmin.RW_MAKER
+  module RW_ext (C: Irmin_fs.Config): Irmin.RW.MAKER
   (** Read-write store maker, with control over the filename shapes. *)
 
   module Make_ext (Obj: Irmin_fs.Config) (Ref: Irmin_fs.Config): Irmin.S_MAKER
@@ -89,15 +89,15 @@ module Git: sig
 
     module G: Irmin_git.G
 
-    module AO (V: Irmin.Contents.Conv):
-      Irmin.AO with type t     = G.t
-                and type key   = G.Hash.t
-                and type value = V.t
+    module AO (V: Irmin.Type.S):
+      Irmin.AO.S with type t     = G.t
+                  and type key   = G.Hash.t
+                  and type value = V.t
     (** Embed an append-only store into a Git repository. Contents will
         be written in {i .git/objects/} and might be cleaned-up if you
         run {i git gc} manually. *)
 
-    module RW (K: Irmin.Branch.S): Irmin.RW
+    module RW (K: Irmin.Branch.S): Irmin.RW.S
       with type key   = K.t
        and type value = G.Hash.t
     (** Embed a read-write store into a Git repository. Contents will be
@@ -137,15 +137,15 @@ module Git: sig
 
     module G: Irmin_git.G
 
-    module AO (V: Irmin.Contents.Conv):
-      Irmin.AO with type t     = G.t
-                and type key   = G.Hash.t
-                and type value = V.t
+    module AO (V: Irmin.Type.S):
+      Irmin.AO.S with type t     = G.t
+                  and type key   = G.Hash.t
+                  and type value = V.t
     (** Embed an append-only store into an in-memory Git repository. Contents will
         be written in {i .git/objects/} and might be cleaned-up if you
         run {i git gc} manually. *)
 
-    module RW (K: Irmin.Branch.S): Irmin.RW
+    module RW (K: Irmin.Branch.S): Irmin.RW.S
       with type key   = K.t
        and type value = G.Hash.t
     (** Embed a read-write store into an in-memory Git repository. Contents will be

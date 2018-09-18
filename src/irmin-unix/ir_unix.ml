@@ -16,7 +16,7 @@
 
 open Lwt.Infix
 
-module IO = struct
+module IO: Irmin_fs.IO = struct
 
   module Log = struct
     let src = Logs.Src.create "git.unix" ~doc:"logs git's unix events"

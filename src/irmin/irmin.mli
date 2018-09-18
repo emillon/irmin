@@ -3189,11 +3189,11 @@ end
 module Make
     (AO: sig
        include AO.MAKER
-       val v: Conf.t -> t Lwt.t
+       val v: config -> t Lwt.t
      end)
     (RW: sig
        include RW.MAKER
-       val v: Conf.t -> t Lwt.t
+       val v: config -> t Lwt.t
      end): S_MAKER
 (** Simple store creator. Use the same type of all of the internal
     keys and store all the values in the same store. *)

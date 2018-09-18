@@ -72,9 +72,9 @@ let add_opt k v config = match v with
 type contents = (module Irmin.Contents.S)
 
 let contents_kinds = ref [
-  "string" , (module Irmin.Contents.String: Irmin.Contents.S);
-  "cstruct", (module Irmin.Contents.Cstruct);
-  "json", (module Irmin.Contents.Json);
+  "string", (module Irmin.Contents.String: Irmin.Contents.S);
+  "bytes" , (module Irmin.Contents.Bytes);
+  "json"  , (module Irmin.Contents.Json);
 ]
 let default_contents = ref (module Irmin.Contents.String: Irmin.Contents.S)
 let add_content_type name ?default:(default=false) m =
@@ -200,16 +200,16 @@ let from_config_file_with_defaults path (store, contents) config branch: t =
       match contents with
       | None ->
         (match assoc "contents" mk_contents with
-        | None   -> !default_contents
-        | Some c -> c)
+         | None   -> !default_contents
+         | Some c -> c)
       | Some c -> mk_contents c
     in
     let store =
       match store with
       | None ->
         (match assoc "store" mk_store with
-        | None   -> !default_store
-        | Some s -> s)
+         | None   -> !default_store
+         | Some s -> s)
       | Some s -> mk_store s
     in
     store contents
@@ -217,12 +217,13 @@ let from_config_file_with_defaults path (store, contents) config branch: t =
   let module S = (val store) in
   let branch =
     match branch with
-      | None   -> assoc "branch" (fun x -> match S.Branch.of_string x with
+    | None   -> assoc "branch" (fun x ->
+        match Irmin.Type.of_string S.Branch.t x with
         | Ok x -> x
         | Error (`Msg msg) -> failwith msg)
-      | Some t -> (match S.Branch.of_string t with
-          | Ok x           -> Some x
-          | Error (`Msg e) -> failwith e)
+    | Some t -> (match Irmin.Type.of_string S.Branch.t t with
+        | Ok x           -> Some x
+        | Error (`Msg e) -> failwith e)
   in
   let config =
     let root = assoc "root" (fun x -> x) in

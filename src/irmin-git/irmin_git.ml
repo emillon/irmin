@@ -363,10 +363,10 @@ end
 module Branch (B: Irmin.Branch.S): BRANCH with type t = B.t = struct
   open Astring
   include B
-  let pp_ref ppf b = Fmt.pf ppf "refs/heads/%a" B.pp b
+  let pp_ref ppf b = Fmt.pf ppf "refs/heads/%a" (Irmin.Type.pp B.t) b
 
   let of_ref str = match String.cuts ~sep:"/" str with
-    | "refs" :: "heads" :: b -> B.of_string (String.concat ~sep:"/" b)
+    | "refs" :: "heads" :: b -> Irmin.Type.of_string B.t (String.concat ~sep:"/" b)
     | _ -> Error (`Msg (Fmt.strf "%s is not a valid branch" str))
 end
 
@@ -404,12 +404,14 @@ module Irmin_branch_store
 
   let git_of_branch r = G.Reference.of_string (Fmt.to_to_string B.pp_ref r)
 
+  let pp_key = Irmin.Type.pp Key.t
+
   let mem { t; _ } r =
-    Log.debug (fun l -> l "mem %a" Key.pp r);
+    Log.debug (fun l -> l "mem %a" pp_key r);
     G.Ref.mem t (git_of_branch r)
 
   let find { t; _ } r =
-    Log.debug (fun l -> l "find %a" Key.pp r);
+    Log.debug (fun l -> l "find %a" pp_key r);
     G.Ref.resolve t (git_of_branch r) >>= function
     | Error `Not_found -> Lwt.return None
     | Error e          -> Fmt.kstrf Lwt.fail_with "%a" G.pp_error e
@@ -430,7 +432,7 @@ module Irmin_branch_store
       Lwt.return (fun () -> Lwt.return_unit)
 
   let watch_key t key ?init f =
-    Log.debug (fun l -> l "watch_key %a" Key.pp key);
+    Log.debug (fun l -> l "watch_key %a" pp_key key);
     listen_dir t >>= fun stop ->
     W.watch_key t.w key ?init f >|= fun w ->
     (w, stop)
@@ -498,8 +500,10 @@ module Irmin_branch_store
     ) else
       Lwt.return_unit
 
+  let pp_branch = Irmin.Type.pp B.t
+
   let set t r k =
-    Log.debug (fun f -> f "set %a" B.pp r);
+    Log.debug (fun f -> f "set %a" pp_branch r);
     let gr = git_of_branch r in
     Lwt_mutex.with_lock t.m (fun () -> G.Ref.write t.t gr (G.Reference.Hash k))
     >>= function
@@ -509,7 +513,7 @@ module Irmin_branch_store
       write_index t gr k
 
   let remove t r =
-    Log.debug (fun f -> f "remove %a" B.pp r);
+    Log.debug (fun f -> f "remove %a" pp_branch r);
     Lwt_mutex.with_lock t.m (fun () -> G.Ref.remove t.t (git_of_branch r))
     >>= function
     | Error e -> Fmt.kstrf Lwt.fail_with "%a" G.pp_error e
@@ -521,7 +525,7 @@ module Irmin_branch_store
     | _ -> false
 
   let test_and_set t r ~test ~set =
-    Log.debug (fun f -> f "test_and_set %a" B.pp r);
+    Log.debug (fun f -> f "test_and_set %a" pp_branch r);
     let gr = git_of_branch r in
     let c = function
       | None   -> None
@@ -575,7 +579,7 @@ struct
   type branch = B.t
 
   let git_of_branch_str str = G.Reference.of_string ("refs/heads/" ^ str)
-  let git_of_branch r = git_of_branch_str (Fmt.to_to_string B.pp r)
+  let git_of_branch r = git_of_branch_str (Irmin.Type.to_string B.t r)
 
   let o_head_of_git = function
     | None   -> Error `No_head
@@ -599,7 +603,7 @@ struct
       (* remote *)
       reference,
       (* local *)
-      [ G.Reference.of_string ("refs/remotes/origin/" ^ (Fmt.to_to_string B.pp br));
+      [ G.Reference.of_string ("refs/remotes/origin/" ^ (Irmin.Type.to_string B.t br));
         reference ]
     in
     Sync.fetch_one t uri ~reference:references >|= function
@@ -661,8 +665,6 @@ module Reference: BRANCH with type t = reference = struct
     | `Tag t    -> Fmt.pf ppf "refs/tags/%s" t
     | `Other o  -> Fmt.pf ppf "refs/%s" o
 
-  let pp = pp_ref
-
   let path l = String.concat ~sep:"/" l
 
   let of_ref str = match String.cuts ~sep:"/" str with
@@ -671,8 +673,6 @@ module Reference: BRANCH with type t = reference = struct
     | "refs" :: "tags"    :: t -> Ok (`Tag (path t))
     | "refs" :: o              -> Ok (`Other (path o))
     | _ -> Error (`Msg (Fmt.strf "%s is not a valid reference" str))
-
-  let of_string = of_ref
 
   let t =
     let open Irmin.Type in
@@ -686,6 +686,8 @@ module Reference: BRANCH with type t = reference = struct
     |~ case1 "tag"    string (fun t -> `Tag t)
     |~ case1 "other"  string (fun t -> `Other t)
     |> sealv
+
+  let t = Irmin.Type.like t ~cli:(pp_ref, of_ref) (fun x -> x) (fun x -> x)
 
   let master = `Branch Irmin.Branch.String.master
 
@@ -855,7 +857,7 @@ module NoNet = struct
   let close _ = Lwt.return ()
 end
 
-module AO (G: Git.S) (V: Irmin.Contents.Conv)
+module AO (G: Git.S) (V: Irmin.Type.S)
 = struct
   module G = struct
     include G
@@ -884,7 +886,7 @@ module RW (G: Git.S) (K: Irmin.Branch.S) =
 struct
   module K = struct
     include K
-    let master = match K.of_string "master" with
+    let master = match Irmin.Type.of_string K.t "master" with
       | Ok x           -> x
       | Error (`Msg e) -> failwith e
   end
