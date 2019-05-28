@@ -448,9 +448,9 @@ module type PRIVATE = sig
     val batch :
       t ->
       ([ `Read | `Write ] Contents.t ->
-       [ `Read | `Write ] Node.t ->
-       [ `Read | `Write ] Commit.t ->
-       'a Lwt.t) ->
+      [ `Read | `Write ] Node.t ->
+      [ `Read | `Write ] Commit.t ->
+      'a Lwt.t) ->
       'a Lwt.t
   end
 
@@ -1036,14 +1036,15 @@ module type MAKER = functor
   (P : PATH)
   (B : BRANCH)
   (H : HASH)
-  -> STORE
-     with type key = P.t
-      and type step = P.step
-      and module Key = P
-      and type metadata = M.t
-      and type contents = C.t
-      and type branch = B.t
-      and type hash = H.t
+  ->
+  STORE
+  with type key = P.t
+   and type step = P.step
+   and module Key = P
+   and type metadata = M.t
+   and type contents = C.t
+   and type branch = B.t
+   and type hash = H.t
 
 type remote += Store : (module STORE with type t = 'a) * 'a -> remote
 

@@ -73,9 +73,9 @@ struct
 
   let value_t =
     let open Type in
-    variant "slice" (fun contents node commit -> function
-      | `Contents x -> contents x | `Node x -> node x | `Commit x -> commit x
-    )
+    variant "slice" (fun contents node commit ->
+      function
+      | `Contents x -> contents x | `Node x -> node x | `Commit x -> commit x)
     |~ case1 "contents" contents_t (fun x -> `Contents x)
     |~ case1 "node" node_t (fun x -> `Node x)
     |~ case1 "commit" commit_t (fun x -> `Commit x)

@@ -7,7 +7,7 @@ module Server = struct
 
   module Make
       (S : Irmin.S) (Remote : sig
-          val remote : Resolver.Store.remote_fn option
+        val remote : Resolver.Store.remote_fn option
       end) =
   struct
     include Irmin_graphql.Server.Make

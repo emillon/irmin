@@ -79,9 +79,10 @@ end = struct
         (fun acc l ->
           match Irmin.Type.of_string Entry.t l with
           | Ok x -> x :: acc
-          | Error (`Msg e) -> failwith e )
+          | Error (`Msg e) -> failwith e)
         [] lines
-      |> fun l -> Ok l
+      |> fun l ->
+      Ok l
     with Failure e -> Error (`Msg e)
 
   let cli = (lines, of_string)
@@ -129,7 +130,7 @@ let log t fmt =
     (fun message ->
       all_logs t >>= fun logs ->
       let logs = Log.add logs (Entry.v message) in
-      Store.set_exn t ~info:(info "Adding a new entry") log_file logs )
+      Store.set_exn t ~info:(info "Adding a new entry") log_file logs)
     fmt
 
 let print_logs name t =

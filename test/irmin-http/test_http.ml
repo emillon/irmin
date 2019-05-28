@@ -67,7 +67,8 @@ let rec wait_for_the_server_to_start () =
     Lwt.return pid )
   else (
     Logs.debug (fun l -> l "waiting for the server to start...");
-    Lwt_unix.sleep 0.1 >>= fun () -> wait_for_the_server_to_start () )
+    Lwt_unix.sleep 0.1 >>= fun () ->
+    wait_for_the_server_to_start () )
 
 let servers = [ (`Quick, Test_mem.suite); (`Quick, Test_git.suite) ]
 
@@ -80,7 +81,7 @@ let serve servers n =
   Logs.debug (fun l ->
       l "Got server: %s, root=%a" server.name
         Fmt.(option string)
-        (root server.config) );
+        (root server.config));
   let (module Server : Irmin_test.S) = server.store in
   let module HTTP = Irmin_http_server.Make (Cohttp_lwt_unix.Server) (Server) in
   let server () =
@@ -110,7 +111,8 @@ let suite i server =
           Sys.command
           @@ Fmt.strf "dune exec --root . -- %s serve %d &" Sys.argv.(0) i
         in
-        wait_for_the_server_to_start () >|= fun pid -> server_pid := pid );
+        wait_for_the_server_to_start () >|= fun pid ->
+        server_pid := pid);
     stats = None;
     clean =
       (fun () ->
@@ -121,7 +123,7 @@ let suite i server =
             with _ -> ()
           in
           server.clean ()
-        with Unix.Unix_error (Unix.ESRCH, _, _) -> Lwt.return_unit );
+        with Unix.Unix_error (Unix.ESRCH, _, _) -> Lwt.return_unit);
     config = Irmin_http.config uri;
     store = http_store server.store
   }

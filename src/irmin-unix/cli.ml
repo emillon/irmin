@@ -230,7 +230,8 @@ let tree =
                            todo := k :: !todo;
                            Lwt.return_unit
                        | `Contents ->
-                           S.get t k >|= fun v -> all := (k, v) :: !all )
+                           S.get t k >|= fun v ->
+                           all := (k, v) :: !all)
                      childs
                    >>= walk
              in
@@ -240,7 +241,7 @@ let tree =
                List.map
                  (fun (k, v) ->
                    ( Irmin.Type.to_string S.Key.t k,
-                     Irmin.Type.to_string S.Contents.t v ) )
+                     Irmin.Type.to_string S.Contents.t v ))
                  all
              in
              let max_length l =
@@ -254,7 +255,7 @@ let tree =
                  let dots =
                    String.make (pad - String.length k - String.length v) '.'
                  in
-                 print "%s%s%s" k dots v )
+                 print "%s%s%s" k dots v)
                all;
              Lwt.return_unit )
        in
@@ -345,7 +346,8 @@ let fetch =
              remote >>= fun r ->
              let branch = branch S.Branch.t "import" in
              S.of_branch (S.repo t) branch >>= fun t ->
-             Sync.pull_exn t (apply r f) `Set >>= fun _ -> Lwt.return_unit )
+             Sync.pull_exn t (apply r f) `Set >>= fun _ ->
+             Lwt.return_unit )
        in
        Term.(mk fetch $ store $ remote))
   }
@@ -392,7 +394,8 @@ let pull =
            ( store >>= fun t ->
              remote >>= fun r ->
              Sync.pull_exn t (apply r f) (`Merge (Info.v ?author "%s" message))
-             >>= fun _ -> Lwt.return_unit )
+             >>= fun _ ->
+             Lwt.return_unit )
        in
        Term.(mk pull $ store $ author $ message $ remote))
   }
@@ -408,7 +411,8 @@ let push =
          run
            ( store >>= fun t ->
              remote >>= fun r ->
-             Sync.push_exn t (apply r f) >>= fun _ -> Lwt.return_unit )
+             Sync.push_exn t (apply r f) >>= fun _ ->
+             Lwt.return_unit )
        in
        Term.(mk push $ store $ remote))
   }
@@ -490,7 +494,7 @@ let watch =
                  y >>= fun y ->
                  S.Tree.diff x y >>= fun diff ->
                  List.iter pr diff;
-                 Lwt.return_unit )
+                 Lwt.return_unit)
              >>= fun _ ->
              let t, _ = Lwt.task () in
              t )
@@ -546,10 +550,10 @@ let dot =
              Lwt.finalize
                (fun () ->
                  output_string oc (Buffer.contents buf);
-                 Lwt.return_unit )
+                 Lwt.return_unit)
                (fun () ->
                  close_out oc;
-                 Lwt.return_unit )
+                 Lwt.return_unit)
              >>= fun () ->
              if call_dot then (
                let i = Sys.command "/bin/sh -c 'command -v dot'" in
@@ -557,8 +561,7 @@ let dot =
                  Logs.err (fun f ->
                      f
                        "Cannot find the `dot' utility. Please install it on \
-                        your system and be sure it is available in your $PATH."
-                 );
+                        your system and be sure it is available in your $PATH.");
                let i =
                  Sys.command
                    (Printf.sprintf "dot -Tpng %s.dot -o%s.png" basename

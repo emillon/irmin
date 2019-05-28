@@ -20,11 +20,11 @@ module Make (K : Type.S) : S.COMMIT with type hash = K.t
 
 module Store
     (N : S.NODE_STORE) (C : sig
-        include S.CONTENT_ADDRESSABLE_STORE with type key = N.key
+      include S.CONTENT_ADDRESSABLE_STORE with type key = N.key
 
-        module Key : S.HASH with type t = key
+      module Key : S.HASH with type t = key
 
-        module Val : S.COMMIT with type t = value and type hash = key
+      module Val : S.COMMIT with type t = value and type hash = key
     end) :
   S.COMMIT_STORE
   with type 'a t = 'a N.t * 'a C.t

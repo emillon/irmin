@@ -47,29 +47,29 @@ val info :
 module FS : sig
   (** {1 File-system Store} *)
 
-  (** Append-only store maker. *)
   module Append_only : Irmin.APPEND_ONLY_STORE_MAKER
+  (** Append-only store maker. *)
 
-  (** Atomic-write store maker. *)
   module Atomic_write : Irmin.ATOMIC_WRITE_STORE_MAKER
+  (** Atomic-write store maker. *)
 
-  (** Irmin store maker. *)
   module Make : Irmin.S_MAKER
+  (** Irmin store maker. *)
 
+  module KV : Irmin.KV_MAKER
   (** Irmin store make, where only the Contents have to be specified:
       branches are strings and paths are string lists. *)
-  module KV : Irmin.KV_MAKER
 
-  (** Append-only store maker, with control over the filenames shapes. *)
   module Append_only_ext (C : Irmin_fs.Config) : Irmin.APPEND_ONLY_STORE_MAKER
+  (** Append-only store maker, with control over the filenames shapes. *)
 
-  (** Read-write store maker, with control over the filename shapes. *)
   module Atomic_write_ext (C : Irmin_fs.Config) :
     Irmin.ATOMIC_WRITE_STORE_MAKER
+  (** Read-write store maker, with control over the filename shapes. *)
 
-  (** Irmin store maker, with control over the filename shapes. *)
   module Make_ext (Obj : Irmin_fs.Config) (Ref : Irmin_fs.Config) :
     Irmin.S_MAKER
+  (** Irmin store maker, with control over the filename shapes. *)
 end
 
 (** Bidirectional Git backends. *)
@@ -178,13 +178,13 @@ end
 module Http : sig
   (** {1 HTTP client} *)
 
+  module Make : Irmin.S_MAKER
   (** [Make] provides bindings to the remote HTTP server.
 
       Only the {{!Irmin.S.Private}low-level operations} are forwarded
       to the server, all the high-level logic is done on the
       client. Hence a high-level operation might take multiple
       RTTs. *)
-  module Make : Irmin.S_MAKER
 
   module KV : Irmin.KV_MAKER
 

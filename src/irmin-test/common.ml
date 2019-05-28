@@ -43,7 +43,8 @@ let reporter ?(prefix = "") () =
         (pad 10 @@ Logs.Src.name src)
         Logs_fmt.pp_header (level, h)
     in
-    msgf @@ fun ?header ?tags fmt -> with_stamp header tags k fmt
+    msgf @@ fun ?header ?tags fmt ->
+    with_stamp header tags k fmt
   in
   { Logs.report }
 

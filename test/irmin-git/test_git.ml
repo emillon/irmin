@@ -52,7 +52,9 @@ module Mem = struct
 
   let init () =
     Git.v (Fpath.v test_db) >>= function
-    | Ok t -> S.Git.reset t >|= fun _ -> ()
+    | Ok t ->
+        S.Git.reset t >|= fun _ ->
+        ()
     | _ -> Lwt.return ()
 end
 
@@ -115,6 +117,7 @@ let test_sort_order (module S : Test_S) =
   Alcotest.(check string)
     "Sort hash" "00c5f5e40e37fde61911f71373813c0b6cad1477"
     (Irmin.Type.to_string S.Private.Node.Key.t tree_id);
+
   (* Convert dir to file; changes order in listing *)
   S.set_exn master ~info [ "foo" ] "foo" >>= fun () ->
   ls master >>= fun items ->
@@ -155,6 +158,7 @@ let test_list_refs (module S : Test_S) =
   S.Repo.branches repo >>= fun bs ->
   Alcotest.(check (slist string String.compare))
     "filtered branches" [ "master"; "foo" ] bs;
+
   (* XXX: re-add
   if S.Git.kind = `Disk then
     let i = Fmt.kstrf Sys.command "cd %s && git gc" test_db in

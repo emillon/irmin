@@ -57,8 +57,9 @@ module Make (S : S.STORE) = struct
           let v = conv RP.Commit.Val.t SP.Commit.Val.t v in
           match (k, v) with
           | Ok k, Ok v -> SP.Slice.add s (`Commit (k, v))
-          | _ -> Lwt.return_unit ) )
-    >>= fun () -> Lwt.return s
+          | _ -> Lwt.return_unit ))
+    >>= fun () ->
+    Lwt.return s
 
   let convs src dst l =
     List.fold_left
@@ -126,7 +127,9 @@ module Make (S : S.STORE) = struct
     | Error e -> Lwt.return_error (e :> pull_error)
     | Ok (`Head k) -> (
       match kind with
-      | `Set -> S.Head.set t k >|= fun () -> Ok (`Head k)
+      | `Set ->
+          S.Head.set t k >|= fun () ->
+          Ok (`Head k)
       | `Merge info -> (
           S.Head.merge ~into:t ~info k >>= function
           | Ok () -> Lwt.return_ok (`Head k)
@@ -166,7 +169,8 @@ module Make (S : S.STORE) = struct
               | Error e -> Lwt.return (Error (e :> push_error))
               | Ok h ->
                   R.Head.set r h >>= fun () ->
-                  S.Head.get t >|= fun head -> Ok (`Head head) ) ) )
+                  S.Head.get t >|= fun head ->
+                  Ok (`Head head) ) ) )
     | S.E e -> (
       match S.status t with
       | `Empty -> Lwt.return_ok `Empty

@@ -49,11 +49,11 @@ end
 
 module Store
     (N : S.NODE_STORE) (S : sig
-        include S.CONTENT_ADDRESSABLE_STORE with type key = N.key
+      include S.CONTENT_ADDRESSABLE_STORE with type key = N.key
 
-        module Key : S.HASH with type t = key
+      module Key : S.HASH with type t = key
 
-        module Val : S.COMMIT with type t = value and type hash = key
+      module Val : S.COMMIT with type t = value and type hash = key
     end) =
 struct
   module Node = N
@@ -117,7 +117,8 @@ struct
         empty_if_none t node >>= fun node ->
         let parents = [ k1; k2 ] in
         let commit = S.Val.v ~node ~parents ~info:(info ()) in
-        add t commit >>= fun key -> Merge.ok key
+        add t commit >>= fun key ->
+        Merge.ok key
 
   let merge t ~info = Merge.(option (v S.Key.t (merge_commit info t)))
 
@@ -148,7 +149,8 @@ module History (S : S.COMMIT_STORE) = struct
 
   let v t ~node ~parents ~info =
     let commit = S.Val.v ~node ~parents ~info in
-    S.add t commit >|= fun hash -> (hash, commit)
+    S.add t commit >|= fun hash ->
+    (hash, commit)
 
   let pp_key = Type.pp S.Key.t
 
@@ -392,6 +394,7 @@ module History (S : S.COMMIT_STORE) = struct
     add_to_layer t depth commit;
     if depth <> t.depth then (
       assert (depth = t.depth + 1);
+
       (* before starting to explore a new layer, check if we really
          have some work to do, ie. do we still have a commit seen only
          by one node? *)
@@ -424,12 +427,12 @@ module History (S : S.COMMIT_STORE) = struct
       let t0 = Sys.time () in
       Lwt.finalize
         (fun () ->
-          traverse_bfs t ~f:(update_parents s) ~pp ~check ~init ~return )
+          traverse_bfs t ~f:(update_parents s) ~pp ~check ~init ~return)
         (fun () ->
           let t1 = Sys.time () -. t0 in
           Log.debug (fun f ->
-              f "lcas %d: depth=%d time=%.4fs" !lca_calls s.depth t1 );
-          Lwt.return_unit )
+              f "lcas %d: depth=%d time=%.4fs" !lca_calls s.depth t1);
+          Lwt.return_unit)
 
   let rec three_way_merge t ~info ?max_depth ?n c1 c2 =
     Log.debug (fun f -> f "3-way merge between %a and %a" pp_key c1 pp_key c2);
@@ -445,14 +448,15 @@ module History (S : S.COMMIT_STORE) = struct
             let rec aux acc = function
               | [] -> Merge.ok (Some acc)
               | old :: olds ->
-                  three_way_merge t ~info acc old >>=* fun acc -> aux acc olds
+                  three_way_merge t ~info acc old >>=* fun acc ->
+                  aux acc olds
             in
             aux old olds
       in
       let merge =
         merge t ~info
         |> Merge.with_conflict (fun msg ->
-               Fmt.strf "Recursive merging of common ancestors: %s" msg )
+               Fmt.strf "Recursive merging of common ancestors: %s" msg)
         |> Merge.f
       in
       merge ~old c1 c2
@@ -511,6 +515,7 @@ module V1 (C : S.COMMIT) = struct
   type t = { parents : hash list; c : C.t }
 
   let import c = { c; parents = C.parents c }
+
   let export t = t.c
 
   let node t = C.node t.c

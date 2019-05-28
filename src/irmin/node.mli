@@ -22,9 +22,9 @@ module No_metadata : S.METADATA with type t = unit
 
 module Make
     (K : Type.S) (P : sig
-        type step
+      type step
 
-        val step_t : step Type.t
+      val step_t : step Type.t
     end)
     (M : S.METADATA) :
   S.NODE with type hash = K.t and type step = P.step and type metadata = M.t
@@ -33,16 +33,16 @@ module Store
     (C : S.CONTENTS_STORE)
     (P : S.PATH)
     (M : S.METADATA) (N : sig
-        include S.CONTENT_ADDRESSABLE_STORE with type key = C.key
+      include S.CONTENT_ADDRESSABLE_STORE with type key = C.key
 
-        module Key : S.HASH with type t = key
+      module Key : S.HASH with type t = key
 
-        module Val :
-          S.NODE
-          with type t = value
-           and type hash = key
-           and type metadata = M.t
-           and type step = P.step
+      module Val :
+        S.NODE
+        with type t = value
+         and type hash = key
+         and type metadata = M.t
+         and type step = P.step
     end) :
   S.NODE_STORE
   with type 'a t = 'a C.t * 'a N.t

@@ -96,7 +96,8 @@ struct
 
   let add t v =
     let k = digest v in
-    add t k v >|= fun () -> k
+    add t k v >|= fun () ->
+    k
 end
 
 module Make_ext

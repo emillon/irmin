@@ -89,7 +89,9 @@ let init () =
   Store.of_branch repo master >>= fun t ->
   Store.set_exn t ~info:(info images.(0) "init") [ "0" ] "0" >>= fun () ->
   Lwt_list.iter_s
-    (fun i -> Store.clone ~src:t ~dst:(branch i) >>= fun _ -> Lwt.return_unit)
+    (fun i ->
+      Store.clone ~src:t ~dst:(branch i) >>= fun _ ->
+      Lwt.return_unit)
     (Array.to_list images)
 
 let random_array a = a.(Random.int (Array.length a))
@@ -124,18 +126,20 @@ let rec process image =
     else Lwt.return_unit
   else Lwt.return_unit )
   >>= fun () ->
-  Lwt_unix.sleep (max 0.1 (Random.float 0.3)) >>= fun () -> process image
+  Lwt_unix.sleep (max 0.1 (Random.float 0.3)) >>= fun () ->
+  process image
 
 let rec protect fn x =
   Lwt.catch
     (fun () -> fn x)
     (fun e ->
       Printf.eprintf "error: %s" (Printexc.to_string e);
-      protect fn x )
+      protect fn x)
 
 let rec watchdog () =
   Printf.printf "I'm alive!\n%!";
-  Lwt_unix.sleep 1. >>= fun () -> watchdog ()
+  Lwt_unix.sleep 1. >>= fun () ->
+  watchdog ()
 
 let () =
   let aux () =

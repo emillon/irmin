@@ -87,11 +87,12 @@ struct
 
     let t =
       let open Type in
-      variant "vertex" (fun contents node commit branch -> function
+      variant "vertex" (fun contents node commit branch ->
+        function
         | `Contents x -> contents x
         | `Node x -> node x
         | `Commit x -> commit x
-        | `Branch x -> branch x )
+        | `Branch x -> branch x)
       |~ case1 "contents" (pair Contents.t Metadata.t) (fun x -> `Contents x)
       |~ case1 "node" Node.t (fun x -> `Node x)
       |~ case1 "commit" Commit.t (fun x -> `Commit x)
@@ -135,7 +136,7 @@ struct
 
   let closure ?(depth = max_int) ~pred ~min ~max () =
     Log.debug (fun f ->
-        f "closure depth=%d (%d elements)" depth (List.length max) );
+        f "closure depth=%d (%d elements)" depth (List.length max));
     let g = G.create ~size:1024 () in
     let marks = Table.create 1024 in
     let mark key level = Table.add marks key level in
@@ -159,7 +160,8 @@ struct
             List.iter (fun k -> Queue.push (k, level + 1) todo) keys;
             add () )
     in
-    add () >>= fun () -> Lwt.return g
+    add () >>= fun () ->
+    Lwt.return g
 
   let min g =
     G.fold_vertex

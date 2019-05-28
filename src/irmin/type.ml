@@ -352,7 +352,8 @@ let field fname ftype fget = { fname; ftype; fget }
 
 let record : string -> 'b -> ('a, 'b, 'b) open_record = fun n c fs -> (n, c, fs)
 
-let app : type a b c d.
+let app :
+    type a b c d.
     (a, b, c -> d) open_record -> (a, c) field -> (a, b, d) open_record =
  fun r f fs ->
   let n, c, fs = r (F1 (f, fs)) in
@@ -403,7 +404,7 @@ let enum vname l =
     List.fold_left
       (fun (ctag0, cases, mk) (n, v) ->
         let c = { ctag0; cname0 = n; c0 = v } in
-        (ctag0 + 1, C0 c :: cases, (v, CV0 c) :: mk) )
+        (ctag0 + 1, C0 c :: cases, (v, CV0 c) :: mk))
       (0, [], []) l
   in
   let vcases = Array.of_list (List.rev vcases) in
@@ -416,8 +417,8 @@ let rec fields_aux : type a b. (a, b) fields -> a a_field list = function
 let fields r = match r.rfields with Fields (f, _) -> fields_aux f
 
 let result a b =
-  variant "result" (fun ok error -> function
-    | Ok x -> ok x | Error x -> error x )
+  variant "result" (fun ok error ->
+    function Ok x -> ok x | Error x -> error x)
   |~ case1 "ok" a (fun a -> Ok a)
   |~ case1 "error" b (fun b -> Error b)
   |> sealv
@@ -768,7 +769,7 @@ module Encode_json = struct
             t o e x
         | tx, x ->
             lexeme e (`Name f.fname);
-            t tx e x )
+            t tx e x)
       fields;
     lexeme e `Oe
 
@@ -867,7 +868,8 @@ module Decode_json = struct
       in
       if !objs > 0 || !arrs > 0 then aux () else Ok ()
     in
-    aux () >|= fun () -> List.rev !lexemes
+    aux () >|= fun () ->
+    List.rev !lexemes
 
   let unit e = expect_lexeme e `Null
 
@@ -924,7 +926,8 @@ module Decode_json = struct
       | `Ae -> Ok (List.rev acc)
       | lex ->
           Json.rewind e lex;
-          l e >>= fun v -> aux (v :: acc)
+          l e >>= fun v ->
+          aux (v :: acc)
     in
     aux []
 
@@ -932,20 +935,26 @@ module Decode_json = struct
 
   let pair a b e =
     expect_lexeme e `As >>= fun () ->
-    a e >>= fun x -> b e >>= fun y -> expect_lexeme e `Ae >|= fun () -> (x, y)
+    a e >>= fun x ->
+    b e >>= fun y ->
+    expect_lexeme e `Ae >|= fun () ->
+    (x, y)
 
   let triple a b c e =
     expect_lexeme e `As >>= fun () ->
     a e >>= fun x ->
     b e >>= fun y ->
-    c e >>= fun z -> expect_lexeme e `Ae >|= fun () -> (x, y, z)
+    c e >>= fun z ->
+    expect_lexeme e `Ae >|= fun () ->
+    (x, y, z)
 
   let option o e =
     lexeme e >>= function
     | `Null -> Ok None
     | lex ->
         Json.rewind e lex;
-        o e >|= fun v -> Some v
+        o e >|= fun v ->
+        Some v
 
   let rec t : type a. a t -> a decode_json =
    fun ty d ->
@@ -984,13 +993,15 @@ module Decode_json = struct
     expect_lexeme e `Os >>= fun () ->
     let rec soup acc =
       lexeme e >>= function
-      | `Name n -> value e >>= fun s -> soup ((n, s) :: acc)
+      | `Name n ->
+          value e >>= fun s ->
+          soup ((n, s) :: acc)
       | `Oe -> Ok acc
       | l -> error e l "`Record-contents"
     in
     soup [] >>= fun soup ->
-    let rec aux : type a b.
-        (a, b) fields -> b -> (a, [ `Msg of string ]) result =
+    let rec aux :
+        type a b. (a, b) fields -> b -> (a, [ `Msg of string ]) result =
      fun f c ->
       match f with
       | F0 -> Ok c
@@ -1041,7 +1052,9 @@ module Decode_json = struct
               if i < Array.length v.vcases then aux (i + 1)
               else Error (`Msg "variant")
         in
-        aux 0 >>= fun c -> expect_lexeme e `Oe >|= fun () -> c
+        aux 0 >>= fun c ->
+        expect_lexeme e `Oe >|= fun () ->
+        c
     | l -> error e l "`Name"
 end
 
@@ -1093,23 +1106,37 @@ module Size_of = struct
   let list l n x =
     let init = len (List.length x) n in
     List.fold_left
-      (fun acc x -> acc >>= fun acc -> l x >|= fun l -> acc + l)
+      (fun acc x ->
+        acc >>= fun acc ->
+        l x >|= fun l ->
+        acc + l)
       (Some init) x
 
   let array l n x =
     let init = len (Array.length x) n in
     Array.fold_left
-      (fun acc x -> acc >>= fun acc -> l x >|= fun l -> acc + l)
+      (fun acc x ->
+        acc >>= fun acc ->
+        l x >|= fun l ->
+        acc + l)
       (Some init) x
 
-  let pair a b (x, y) = a x >>= fun a -> b y >|= fun b -> a + b
+  let pair a b (x, y) =
+    a x >>= fun a ->
+    b y >|= fun b ->
+    a + b
 
   let triple a b c (x, y, z) =
-    a x >>= fun a -> b y >>= fun b -> c z >|= fun c -> a + b + c
+    a x >>= fun a ->
+    b y >>= fun b ->
+    c z >|= fun c ->
+    a + b + c
 
   let option o = function
     | None -> Some (char '\000')
-    | Some x -> o x >|= fun o -> char '\000' + o
+    | Some x ->
+        o x >|= fun o ->
+        char '\000' + o
 
   let rec t : type a. a t -> a size_of =
    fun ty ?headers e ->
@@ -1151,7 +1178,10 @@ module Size_of = struct
    fun r ?headers:_ x ->
     let fields = fields r in
     List.fold_left
-      (fun acc (Field f) -> acc >>= fun acc -> field f x >|= fun f -> acc + f)
+      (fun acc (Field f) ->
+        acc >>= fun acc ->
+        field f x >|= fun f ->
+        acc + f)
       (Some 0) fields
 
   and field : type a b. (a, b) field -> a size_of =
@@ -1161,7 +1191,9 @@ module Size_of = struct
    fun v ?headers:_ x ->
     match v.vget x with
     | CV0 v -> Some (int v.ctag0)
-    | CV1 (x, vx) -> t x.ctype1 vx >|= fun v -> int x.ctag1 + v
+    | CV1 (x, vx) ->
+        t x.ctype1 vx >|= fun v ->
+        int x.ctag1 + v
 end
 
 let size_of = Size_of.t
@@ -1437,24 +1469,32 @@ module Decode_bin = struct
     len buf ofs n >>= fun (ofs, len) ->
     let rec aux acc ofs = function
       | 0 -> ok ofs (List.rev acc)
-      | n -> l buf ofs >>= fun (ofs, x) -> aux (x :: acc) ofs (n - 1)
+      | n ->
+          l buf ofs >>= fun (ofs, x) ->
+          aux (x :: acc) ofs (n - 1)
     in
     aux [] ofs len
 
   let array l len buf ofs = list l len buf ofs >|= Array.of_list
 
   let pair a b buf ofs =
-    a buf ofs >>= fun (ofs, a) -> b buf ofs >|= fun b -> (a, b)
+    a buf ofs >>= fun (ofs, a) ->
+    b buf ofs >|= fun b ->
+    (a, b)
 
   let triple a b c buf ofs =
     a buf ofs >>= fun (ofs, a) ->
-    b buf ofs >>= fun (ofs, b) -> c buf ofs >|= fun c -> (a, b, c)
+    b buf ofs >>= fun (ofs, b) ->
+    c buf ofs >|= fun c ->
+    (a, b, c)
 
   let option : type a. a decode_bin -> a option decode_bin =
    fun o ?headers:_ buf ofs ->
     char buf ofs >>= function
     | ofs, '\000' -> ok ofs None
-    | ofs, _ -> o buf ofs >|= fun x -> Some x
+    | ofs, _ ->
+        o buf ofs >|= fun x ->
+        Some x
 
   let rec t : type a. a t -> a decode_bin =
    fun ty ?headers buf ofs ->
@@ -1499,7 +1539,9 @@ module Decode_bin = struct
         let rec aux : type b. int -> b -> (a, b) fields -> a res =
          fun ofs f -> function
           | F0 -> ok ofs f
-          | F1 (h, t) -> field h buf ofs >>= fun (ofs, x) -> aux ofs (f x) t
+          | F1 (h, t) ->
+              field h buf ofs >>= fun (ofs, x) ->
+              aux ofs (f x) t
         in
         aux ofs c fs
 
@@ -1507,7 +1549,8 @@ module Decode_bin = struct
 
   and variant : type a. a variant -> a decode_bin =
    fun v ?headers:_ buf ofs ->
-    int buf ofs >>= fun (ofs, i) -> case v.vcases.(i) buf ofs
+    int buf ofs >>= fun (ofs, i) ->
+    case v.vcases.(i) buf ofs
 
   and case : type a. a a_case -> a decode_bin =
    fun c ?headers:_ buf ofs ->

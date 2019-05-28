@@ -46,7 +46,11 @@ let alist_iter2 compare_k f l1 l2 =
 let alist_iter2_lwt compare_k f l1 l2 =
   let l3 = ref [] in
   alist_iter2 compare_k (fun left right -> l3 := f left right :: !l3) l1 l2;
-  Lwt_list.iter_p (fun b -> b >>= fun () -> Lwt.return_unit) (List.rev !l3)
+  Lwt_list.iter_p
+    (fun b ->
+      b >>= fun () ->
+      Lwt.return_unit)
+    (List.rev !l3)
 
 module Make (P : S.PRIVATE) = struct
   module Path = P.Node.Path
@@ -89,16 +93,17 @@ module Make (P : S.PRIVATE) = struct
 
     let value =
       let open Type in
-      variant "Node.Contents" (fun key contents both -> function
+      variant "Node.Contents" (fun key contents both ->
+        function
         | Key (_, x) -> key x
         | Contents (x, y) -> contents (x, y)
-        | Both (_, x, y) -> both (x, y) )
+        | Both (_, x, y) -> both (x, y))
       |~ case1 "Key" P.Contents.Key.t (fun _ -> assert false)
       |~ case1 "Contents"
            (pair P.Contents.Val.t (option P.Contents.Key.t))
            (fun (x, y) -> Contents (x, y))
       |~ case1 "Both" (pair P.Contents.Key.t P.Contents.Val.t) (fun (x, y) ->
-             Contents (y, Some x) )
+             Contents (y, Some x))
       |> sealv
 
     let t = Type.map value (fun v -> { v }) (fun t -> t.v)
@@ -131,7 +136,9 @@ module Make (P : S.PRIVATE) = struct
     let merge : t Merge.t =
       let f ~old x y =
         let old =
-          Merge.bind_promise old (fun old () -> v old >|= fun c -> Ok (Some c))
+          Merge.bind_promise old (fun old () ->
+              v old >|= fun c ->
+              Ok (Some c))
         in
         v x >>= fun x ->
         v y >>= fun y ->
@@ -173,8 +180,8 @@ module Make (P : S.PRIVATE) = struct
 
     let value t =
       let open Type in
-      variant "Node.value" (fun node contents -> function
-        | `Node x -> node x | `Contents x -> contents x )
+      variant "Node.value" (fun node contents ->
+        function `Node x -> node x | `Contents x -> contents x)
       |~ case1 "Node" t (fun x -> `Node x)
       |~ case1 "Contents" (pair Contents.t Metadata.t) (fun x -> `Contents x)
       |> sealv
@@ -189,10 +196,11 @@ module Make (P : S.PRIVATE) = struct
 
     let node m =
       let open Type in
-      variant "Node.node" (fun map key both -> function
+      variant "Node.node" (fun map key both ->
+        function
         | Map (x, y) -> map (x, y)
         | Key (_, y) -> key y
-        | Both (_, y, z) -> both (y, z) )
+        | Both (_, y, z) -> both (y, z))
       |~ case1 "Map" (pair m (option P.Node.Key.t)) (fun (x, y) -> Map (x, y))
       |~ case1 "Key" P.Node.Key.t (fun _ -> assert false)
       |~ case1 "Both" (pair P.Node.Key.t m) (fun (x, y) -> Map (y, Some x))
@@ -205,7 +213,7 @@ module Make (P : S.PRIVATE) = struct
           let value = value y in
           let node = node (map value) in
           let t = t node in
-          (node, t) )
+          (node, t))
 
     let value_t = value t
 
@@ -238,7 +246,7 @@ module Make (P : S.PRIVATE) = struct
             ( l,
               match x with
               | `Contents (c, m) -> `Contents (Contents.of_key t c, m)
-              | `Node n -> `Node (of_key t n) ) )
+              | `Node n -> `Node (of_key t n) ))
           alist
       in
       List.fold_left
@@ -262,7 +270,7 @@ module Make (P : S.PRIVATE) = struct
               | `Contents (c, m) -> `Contents (Contents.key c, m)
               | `Node n -> `Node (key n)
             in
-            (step, v) :: acc )
+            (step, v) :: acc)
           map []
       in
       P.Node.Val.v alist
@@ -310,7 +318,7 @@ module Make (P : S.PRIVATE) = struct
           let kvs = StepMap.bindings m in
           List.map
             (fun (k, v) ->
-              (k, match v with `Contents _ -> `Contents | `Node _ -> `Node) )
+              (k, match v with `Contents _ -> `Contents | `Node _ -> `Node))
             kvs
 
     let listv t =
@@ -351,7 +359,9 @@ module Make (P : S.PRIVATE) = struct
       in
       let rec aux ~path acc t k =
         match force with
-        | `True -> to_map t >>= fun m -> map ~path acc m k
+        | `True ->
+            to_map t >>= fun m ->
+            map ~path acc m k
         | `False skip -> (
           match t.v with
           | Key _ -> skip path acc
@@ -424,7 +434,8 @@ module Make (P : S.PRIVATE) = struct
       let f ~old x y =
         let old =
           Merge.bind_promise old (fun old () ->
-              to_map old >|= fun map -> Ok (Some map) )
+              to_map old >|= fun map ->
+              Ok (Some map))
         in
         to_map x >>= fun x ->
         to_map y >>= fun y ->
@@ -447,14 +458,14 @@ module Make (P : S.PRIVATE) = struct
               Merge.bind_promise old (fun old () ->
                   match old with
                   | `Contents (_, m) -> Lwt.return (Ok (Some m))
-                  | `Node _ -> Lwt.return (Ok None) )
+                  | `Node _ -> Lwt.return (Ok None))
             in
             Merge.(f Metadata.merge) ~old:mold cx cy >>=* fun m ->
             let old =
               Merge.bind_promise old (fun old () ->
                   match old with
                   | `Contents (c, _) -> Lwt.return (Ok (Some c))
-                  | `Node _ -> Lwt.return (Ok None) )
+                  | `Node _ -> Lwt.return (Ok None))
             in
             Merge.(f Contents.merge) ~old x y >>=* fun c ->
             Merge.ok (`Contents (c, m))
@@ -463,9 +474,10 @@ module Make (P : S.PRIVATE) = struct
               Merge.bind_promise old (fun old () ->
                   match old with
                   | `Contents _ -> Lwt.return (Ok None)
-                  | `Node n -> Lwt.return (Ok (Some n)) )
+                  | `Node n -> Lwt.return (Ok (Some n)))
             in
-            Merge.(f @@ merge ()) ~old x y >>=* fun n -> Merge.ok (`Node n)
+            Merge.(f @@ merge ()) ~old x y >>=* fun n ->
+            Merge.ok (`Node n)
         | _ -> Merge.conflict "add/add values"
       in
       Merge.seq [ Merge.default value_t; Merge.v value_t f ]
@@ -479,7 +491,7 @@ module Make (P : S.PRIVATE) = struct
       | Map (m, _) ->
           StepMap.iter
             (fun _ -> function `Contents (c, _) -> Contents.clear_caches c
-              | `Node n -> clear_caches n )
+              | `Node n -> clear_caches n)
             m
   end
 
@@ -497,11 +509,11 @@ module Make (P : S.PRIVATE) = struct
 
   let tree_t =
     let open Type in
-    variant "tree" (fun node contents -> function
-      | `Node n -> node n | `Contents c -> contents c )
+    variant "tree" (fun node contents ->
+      function `Node n -> node n | `Contents c -> contents c)
     |~ case1 "node" Node.t (fun n -> `Node n)
     |~ case1 "contents" (pair P.Contents.Val.t Metadata.t) (fun c ->
-           `Contents c )
+           `Contents c)
     |> sealv
 
   let dump ppf = function
@@ -638,7 +650,9 @@ module Make (P : S.PRIVATE) = struct
     | None -> err_not_found "get" k
     | Some v -> Lwt.return v
 
-  let get t k = get_all t k >|= fun (c, _) -> c
+  let get t k =
+    get_all t k >|= fun (c, _) ->
+    c
 
   let mem t k = find t k >|= function None -> false | _ -> true
 
@@ -665,7 +679,9 @@ module Make (P : S.PRIVATE) = struct
   let may_remove t k =
     Node.findv t k >>= function
     | None -> Lwt.return_none
-    | Some _ -> Node.remove t k >>= fun t -> Lwt.return (Some t)
+    | Some _ ->
+        Node.remove t k >>= fun t ->
+        Lwt.return (Some t)
 
   let remove t k =
     Log.debug (fun l -> l "Tree.remove %a" pp_path k);
@@ -689,8 +705,7 @@ module Make (P : S.PRIVATE) = struct
                         Node.is_empty child'
                         >>= function
                         | true -> may_remove view h >>= k
-                        | false -> Node.add view h (`Node child') >>= some ) )
-              )
+                        | false -> Node.add view h (`Node child') >>= some )) )
         in
         let n = match t with `Node n -> n | _ -> Node.empty in
         aux n path Lwt.return >|= function None -> t | Some n -> `Node n )
@@ -720,12 +735,11 @@ module Make (P : S.PRIVATE) = struct
               | None | Some (`Contents _) ->
                   aux Node.empty p (function
                     | None -> k None
-                    | Some child' -> Node.add view h (`Node child') >>= some )
+                    | Some child' -> Node.add view h (`Node child') >>= some)
               | Some (`Node child) ->
                   aux child p (function
                     | None -> k None
-                    | Some child' -> Node.add view h (`Node child') >>= some )
-              )
+                    | Some child' -> Node.add view h (`Node child') >>= some) )
         in
         let n = match t with `Node n -> n | _ -> Node.empty in
         aux n path Lwt.return >|= function
@@ -768,12 +782,11 @@ module Make (P : S.PRIVATE) = struct
               | None | Some (`Contents _) ->
                   aux Node.empty p (function
                     | None -> assert false
-                    | Some child -> Node.add view h (`Node child) >>= some )
+                    | Some child -> Node.add view h (`Node child) >>= some)
               | Some (`Node child) ->
                   aux child p (function
                     | None -> k None
-                    | Some child' -> Node.add view h (`Node child') >>= some )
-              )
+                    | Some child' -> Node.add view h (`Node child') >>= some) )
         in
         let n = match t with `Node n -> n | _ -> Node.empty in
         aux n path Lwt.return >|= function None -> t | Some n -> `Node n )
@@ -798,7 +811,7 @@ module Make (P : S.PRIVATE) = struct
               | false ->
                   node x >>= fun k ->
                   n.Node.v <- Node.Both (repo, k, x);
-                  Lwt.return_unit )
+                  Lwt.return_unit)
             todo
       | Node.Key _ | Node.Both _ -> ()
       | Node.Map (x, _) ->
@@ -807,14 +820,15 @@ module Make (P : S.PRIVATE) = struct
             (fun () ->
               node x >>= fun k ->
               n.Node.v <- Node.Both (repo, k, x);
-              Lwt.return_unit )
+              Lwt.return_unit)
             todo;
           let contents = ref [] in
           let nodes = ref [] in
           StepMap.iter
             (fun _ -> function `Contents c -> contents := c :: !contents
-              | `Node n -> nodes := n :: !nodes )
+              | `Node n -> nodes := n :: !nodes)
             x;
+
           (* 2. we pu§sh the contents job on the stack. *)
           List.iter
             (fun (c, _) ->
@@ -824,17 +838,18 @@ module Make (P : S.PRIVATE) = struct
                   Stack.push
                     (fun () ->
                       P.Contents.add contents_t x >|= fun k ->
-                      c.Contents.v <- Contents.Both (repo, k, x) )
-                    todo )
+                      c.Contents.v <- Contents.Both (repo, k, x))
+                    todo)
             !contents;
+
           (* 3. we push the children jobs on the stack. *)
           List.iter
             (fun n ->
               Stack.push
                 (fun () ->
                   add_to_todo n;
-                  Lwt.return_unit )
-                todo )
+                  Lwt.return_unit)
+                todo)
             !nodes
     in
     let rec loop () =
@@ -880,7 +895,7 @@ module Make (P : S.PRIVATE) = struct
                 let path = Path.rcons path k in
                 match v with
                 | `Node v -> (acc, (path, v) :: todo)
-                | `Contents c -> ((path, c) :: acc, todo) )
+                | `Contents c -> ((path, c) :: acc, todo))
               (acc, todo) childs
           in
           aux acc todo
@@ -917,17 +932,20 @@ module Make (P : S.PRIVATE) = struct
                 match v with
                 (* Left *)
                 | `Left (`Contents x) ->
-                    removed !acc (path, x) >|= fun x -> acc := x
+                    removed !acc (path, x) >|= fun x ->
+                    acc := x
                 | `Left (`Node x) ->
                     entries path x >>= fun xs ->
                     Lwt_list.fold_left_s removed !acc xs >|= fun xs ->
                     acc := xs
                 (* Right *)
                 | `Right (`Contents y) ->
-                    added !acc (path, y) >|= fun y -> acc := y
+                    added !acc (path, y) >|= fun y ->
+                    acc := y
                 | `Right (`Node y) ->
                     entries path y >>= fun ys ->
-                    Lwt_list.fold_left_s added !acc ys >|= fun ys -> acc := ys
+                    Lwt_list.fold_left_s added !acc ys >|= fun ys ->
+                    acc := ys
                 (* Both *)
                 | `Both (`Node x, `Node y) ->
                     todo := (path, x, y) :: !todo;
@@ -935,11 +953,13 @@ module Make (P : S.PRIVATE) = struct
                 | `Both (`Contents x, `Node y) ->
                     entries path y >>= fun ys ->
                     removed !acc (path, x) >>= fun x ->
-                    Lwt_list.fold_left_s added x ys >|= fun ys -> acc := ys
+                    Lwt_list.fold_left_s added x ys >|= fun ys ->
+                    acc := ys
                 | `Both (`Node x, `Contents y) ->
                     entries path x >>= fun xs ->
                     added !acc (path, y) >>= fun y ->
-                    Lwt_list.fold_left_s removed y xs >|= fun ys -> acc := ys
+                    Lwt_list.fold_left_s removed y xs >|= fun ys ->
+                    acc := ys
                 | `Both (`Contents x, `Contents y) -> (
                     if Node.contents_equal x y then Lwt.return_unit
                     else
@@ -956,9 +976,10 @@ module Make (P : S.PRIVATE) = struct
                       | Some cx, Some cy ->
                           let x = (cx, snd x) in
                           let y = (cy, snd y) in
-                          acc := (path, `Updated (x, y)) :: !acc ) )
+                          acc := (path, `Updated (x, y)) :: !acc ))
               x y
-            >>= fun () -> aux !acc !todo
+            >>= fun () ->
+            aux !acc !todo
     in
     aux [] [ (Path.empty, x, y) ]
 
@@ -969,9 +990,11 @@ module Make (P : S.PRIVATE) = struct
         else Lwt.return [ (Path.empty, `Updated (y, x)) ]
     | `Node x, `Node y -> diff_node x y
     | `Contents x, `Node y ->
-        diff_node Node.empty y >|= fun diff -> (Path.empty, `Removed x) :: diff
+        diff_node Node.empty y >|= fun diff ->
+        (Path.empty, `Removed x) :: diff
     | `Node x, `Contents y ->
-        diff_node x Node.empty >|= fun diff -> (Path.empty, `Added y) :: diff
+        diff_node x Node.empty >|= fun diff ->
+        (Path.empty, `Added y) :: diff
 
   type concrete =
     [ `Tree of (step * concrete) list | `Contents of contents * metadata ]
@@ -988,7 +1011,7 @@ module Make (P : S.PRIVATE) = struct
             (function
               | `Contents c ->
                   contents (fun v -> tree (StepMap.add s v map) k t) c
-              | `Node _ as v -> tree (StepMap.add s v map) k t )
+              | `Node _ as v -> tree (StepMap.add s v map) k t)
             n
     in
     concrete (fun x -> x) c
@@ -1013,7 +1036,7 @@ module Make (P : S.PRIVATE) = struct
             contents
               (function
                 | None -> node childs k t
-                | Some c -> node ((s, c) :: childs) k t )
+                | Some c -> node ((s, c) :: childs) k t)
               c )
     in
     tree (fun x -> Lwt.return x) t
