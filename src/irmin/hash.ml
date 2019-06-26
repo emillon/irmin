@@ -50,7 +50,24 @@ module BLAKE2S = Make (Digestif.BLAKE2S)
 module With_hash (K : S.HASH) (V : Type.S) = struct
   include K
 
-  let hash v = K.hash (Type.pre_hash V.t v)
+  let hash_exp v : t = Obj.magic (Type.full_hash V.t v)
+
+  let hash_control v = K.hash (Type.pre_hash V.t v)
+
+  (*
+  let hash v =
+    let control = hash_control v in
+    let exp = hash_exp v in
+    if not (Type.equal K.t control exp) then
+      Format.kasprintf failwith "t: %a\ncontrol: %a\nexp: %a\n" Type.pp_ty K.t
+        (Type.pp K.t) control (Type.pp K.t) exp
+    else if true then control
+    else exp
+      *)
+
+  let _ = (hash_control, hash_exp)
+
+  let hash = hash_exp
 end
 
 module V1 (K : S.HASH) : S.HASH with type t = K.t = struct

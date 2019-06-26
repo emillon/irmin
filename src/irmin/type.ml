@@ -1301,7 +1301,8 @@ module Encode_bin_fold = struct
     match ty with
     | Self s -> t ?headers s.self ops e
     | Custom c ->
-        let buf = Buffer.create 0 in
+        let size = match c.size_of e with Some x -> x | None -> 0 in
+        let buf = Buffer.create size in
         c.encode_bin ?headers buf e;
         ops.add_string (Buffer.contents buf)
     | Map b -> map ?headers b ops e
@@ -1392,11 +1393,81 @@ let pre_hash t x =
     match t with
     | Self s -> aux s.self x
     | Map m -> aux m.x (m.g x)
-    | Custom {pre_hash = Some f; _} ->
-      f x
+    | Custom { pre_hash = Some f; _ } -> f x
     | _ -> to_bin_string t x
   in
   aux t x
+
+let trace_ops : Encode_bin_fold.ops -> Encode_bin_fold.ops =
+ fun ops ->
+  { add_bytes =
+      (fun b ->
+        Printf.printf "add_bytes: %S\n" (Bytes.to_string b);
+        ops.add_bytes b );
+    add_string =
+      (fun s ->
+        Printf.printf "add_string: %S\n" s;
+        ops.add_string s );
+    add_char =
+      (fun c ->
+        Printf.printf "add_char: %d\n" (Char.code c);
+        ops.add_char c )
+  }
+
+let full_hash0 t x =
+  let _ = trace_ops in
+  let ctx = ref (Digestif.SHA1.init ()) in
+  let ops =
+    { Encode_bin_fold.add_char =
+        (fun c -> ctx := Digestif.SHA1.feed_string !ctx (String.make 1 c));
+      add_bytes = (fun b -> ctx := Digestif.SHA1.feed_bytes !ctx b);
+      add_string = (fun s -> ctx := Digestif.SHA1.feed_string !ctx s)
+    }
+  in
+  Encode_bin_fold.t t ops x;
+  Digestif.SHA1.get !ctx
+
+(*
+let full_hash t x =
+  let rec aux : type a. a t -> a -> Digestif.SHA1.t =
+   fun t x ->
+    match t with
+    | Self s -> aux s.self x
+    | Map m -> aux m.x (m.g x)
+    | Custom { pre_hash = Some _; _ } -> assert false
+    | _ -> full_hash0 t x
+  in
+  aux t x
+    *)
+
+(*
+let full_hash t x =
+  ignore (full_hash0, ());
+  let ph = pre_hash  t x in
+  Printf.printf "%S\n" ph;
+  Digestif.SHA1.digest_string (ph)
+   *)
+
+let full_hash t x =
+  let rec aux : type a. a t -> a -> Digestif.SHA1.t =
+   fun t x ->
+    match t with
+    | Self s -> aux s.self x
+    | Map m -> aux m.x (m.g x)
+    | Prim (String _) -> Digestif.SHA1.digest_string x
+    | Prim (Bytes _) -> Digestif.SHA1.digest_bytes x
+    (*| Custom c -> to_bin c.size_of c.encode_bin x*)
+    | _ -> full_hash0 t x
+  in
+  aux t x
+
+(*
+let full_hash t x =
+  ignore (full_hash0, ());
+  let ph = to_bin_string t x in
+  Printf.printf "%S\n" ph;
+  Digestif.SHA1.digest_string (ph)
+   *)
 
 module Decode_bin = struct
   let ( >|= ) (ofs, x) f = (ofs, f x)
@@ -1634,9 +1705,7 @@ let like ?cli ?json ?bin ?equal ?compare ?short_hash:h ?pre_hash:p t =
   let short_hash ?seed =
     match h with Some x -> x | None -> short_hash ?seed t
   in
-  let pre_hash = p
-    (* XXX *)
-  in
+  let pre_hash = p (* XXX *) in
   Custom
     { cwit = `Type t;
       pp;

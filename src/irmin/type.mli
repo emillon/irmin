@@ -180,6 +180,8 @@ val pp_json : ?minify:bool -> 'a t -> 'a Fmt.t
 
 val pre_hash : 'a t -> 'a -> string
 
+val full_hash : 'a t -> 'a -> Digestif.SHA1.t
+
 val encode_json : 'a t -> Jsonm.encoder -> 'a -> unit
 
 val decode_json : 'a t -> Jsonm.decoder -> ('a, [ `Msg of string ]) result
