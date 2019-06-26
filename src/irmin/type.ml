@@ -1206,38 +1206,44 @@ module B = struct
     if not Sys.big_endian then set_64 s off (swap64 v) else set_64 s off v
 end
 
-module Encode_bin = struct
+module Encode_bin_fold = struct
+  type ops = {
+    add_char : char -> unit;
+    add_bytes : bytes -> unit;
+    add_string : string -> unit
+  }
+
   let unit _buf () = ()
 
-  let char buf c = Buffer.add_char buf c
+  let char ops c = ops.add_char c
 
-  let int8 buf i = Buffer.add_char buf (Char.chr i)
+  let int8 ops i = ops.add_char (Char.chr i)
 
-  let int16 buf i =
+  let int16 ops i =
     let b = Bytes.create 2 in
     B.set_uint16 b 0 i;
-    Buffer.add_bytes buf b
+    ops.add_bytes b
 
-  let int32 buf i =
+  let int32 ops i =
     let b = Bytes.create 4 in
     B.set_uint32 b 0 i;
-    Buffer.add_bytes buf b
+    ops.add_bytes b
 
-  let int64 buf i =
+  let int64 ops i =
     let b = Bytes.create 8 in
     B.set_uint64 b 0 i;
-    Buffer.add_bytes buf b
+    ops.add_bytes b
 
-  let float buf f = int64 buf (Int64.bits_of_float f)
+  let float ops f = int64 ops (Int64.bits_of_float f)
 
-  let bool buf b = char buf (if b then '\255' else '\000')
+  let bool ops b = char ops (if b then '\255' else '\000')
 
-  let int buf i =
+  let int ops i =
     let rec aux n =
-      if n >= 0 && n < 128 then int8 buf n
+      if n >= 0 && n < 128 then int8 ops n
       else
         let out = 128 + (n land 127) in
-        int8 buf out;
+        int8 ops out;
         aux (n lsr 7)
     in
     aux i
@@ -1251,19 +1257,19 @@ module Encode_bin = struct
     | `Int64 -> int64 buf (Int64.of_int i)
     | `Fixed _ -> ()
 
-  let string ?(headers = true) n buf s =
-    if not headers then Buffer.add_string buf s
+  let string ?(headers = true) n ops s =
+    if not headers then ops.add_string s
     else
       let k = String.length s in
-      len n buf k;
-      Buffer.add_string buf s
+      len n ops k;
+      ops.add_string s
 
-  let bytes ?(headers = true) n buf s =
-    if not headers then Buffer.add_bytes buf s
+  let bytes ?(headers = true) n ops s =
+    if not headers then ops.add_bytes s
     else
       let k = Bytes.length s in
-      len n buf k;
-      Buffer.add_bytes buf s
+      len n ops k;
+      ops.add_bytes s
 
   let list l n buf x =
     len n buf (List.length x);
@@ -1288,30 +1294,35 @@ module Encode_bin = struct
         char buf '\255';
         o buf x
 
-  let rec t : type a. a t -> a encode_bin =
-   fun ty ?headers buf e ->
-    match ty with
-    | Self s -> t ?headers s.self buf e
-    | Custom c -> c.encode_bin ?headers buf e
-    | Map b -> map ?headers b buf e
-    | Prim t -> prim ?headers t buf e
-    | List l -> list (t l.v) l.len buf e
-    | Array a -> array (t a.v) a.len buf e
-    | Tuple t -> tuple ?headers t buf e
-    | Option x -> option (t x) buf e
-    | Record r -> record ?headers r buf e
-    | Variant v -> variant ?headers v buf e
+  type 'a encode_bin_fold = ?headers:bool -> ops -> 'a -> unit
 
-  and tuple : type a. a tuple -> a encode_bin =
+  let rec t : type a. a t -> a encode_bin_fold =
+   fun ty ?headers ops e ->
+    match ty with
+    | Self s -> t ?headers s.self ops e
+    | Custom c ->
+        let buf = Buffer.create 0 in
+        c.encode_bin ?headers buf e;
+        ops.add_string (Buffer.contents buf)
+    | Map b -> map ?headers b ops e
+    | Prim t -> prim ?headers t ops e
+    | List l -> list (t l.v) l.len ops e
+    | Array a -> array (t a.v) a.len ops e
+    | Tuple t -> tuple ?headers t ops e
+    | Option x -> option (t x) ops e
+    | Record r -> record ?headers r ops e
+    | Variant v -> variant ?headers v ops e
+
+  and tuple : type a. a tuple -> a encode_bin_fold =
    fun ty ?headers:_ ->
     match ty with
     | Pair (x, y) -> pair (t x) (t y)
     | Triple (x, y, z) -> triple (t x) (t y) (t z)
 
-  and map : type a b. (a, b) map -> b encode_bin =
+  and map : type a b. (a, b) map -> b encode_bin_fold =
    fun { x; g; _ } ?headers buf u -> t ?headers x buf (g u)
 
-  and prim : type a. a prim -> a encode_bin =
+  and prim : type a. a prim -> a encode_bin_fold =
    fun ty ?headers ->
     match ty with
     | Unit -> unit
@@ -1324,21 +1335,32 @@ module Encode_bin = struct
     | String n -> string ?headers n
     | Bytes n -> bytes ?headers n
 
-  and record : type a. a record -> a encode_bin =
+  and record : type a. a record -> a encode_bin_fold =
    fun r ?headers:_ buf x ->
     let fields = fields r in
     List.iter (fun (Field f) -> t f.ftype buf (f.fget x)) fields
 
-  and variant : type a. a variant -> a encode_bin =
+  and variant : type a. a variant -> a encode_bin_fold =
    fun v ?headers:_ buf x -> case_v buf (v.vget x)
 
-  and case_v : type a. a case_v encode_bin =
+  and case_v : type a. a case_v encode_bin_fold =
    fun ?headers:_ buf c ->
     match c with
     | CV0 c -> int buf c.ctag0
     | CV1 (c, v) ->
         int buf c.ctag1;
         t c.ctype1 buf v
+end
+
+module Encode_bin = struct
+  let t ty ?headers buf a =
+    let ops =
+      { Encode_bin_fold.add_char = Buffer.add_char buf;
+        add_bytes = Buffer.add_bytes buf;
+        add_string = Buffer.add_string buf
+      }
+    in
+    Encode_bin_fold.t ?headers ty ops a
 end
 
 let encode_bin = Encode_bin.t
