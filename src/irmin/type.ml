@@ -110,7 +110,7 @@ and 'a custom = {
   encode_bin : 'a encode_bin;
   decode_bin : 'a decode_bin;
   short_hash : 'a short_hash;
-  pre_hash : 'a -> string;
+  pre_hash : ('a -> string) option;
   size_of : 'a size_of;
   compare : 'a compare;
   equal : 'a equal
@@ -314,7 +314,7 @@ let v ~cli ~json ~bin ~equal ~compare ~short_hash ~pre_hash =
     { cwit = `Witness (Witness.make ());
       pp;
       of_string;
-      pre_hash;
+      pre_hash = Some pre_hash;
       encode_json;
       decode_json;
       encode_bin;
@@ -1392,7 +1392,8 @@ let pre_hash t x =
     match t with
     | Self s -> aux s.self x
     | Map m -> aux m.x (m.g x)
-    | Custom c -> c.pre_hash x
+    | Custom {pre_hash = Some f; _} ->
+      f x
     | _ -> to_bin_string t x
   in
   aux t x
@@ -1633,8 +1634,8 @@ let like ?cli ?json ?bin ?equal ?compare ?short_hash:h ?pre_hash:p t =
   let short_hash ?seed =
     match h with Some x -> x | None -> short_hash ?seed t
   in
-  let pre_hash =
-    match p with Some x -> x | None -> to_bin size_of encode_bin
+  let pre_hash = p
+    (* XXX *)
   in
   Custom
     { cwit = `Type t;
